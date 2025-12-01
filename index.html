@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雲端票券待辦清單</title>
+    
+    <!-- 1. 引入 Tailwind CSS (樣式) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. 引入 Babel (讓瀏覽器看懂 React JSX) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- 3. 設定 Import Map -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+        "lucide-react": "https://esm.sh/lucide-react@0.294.0"
+      }
+    }
+    </script>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-[#F8FAFC]">
+    
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { initializeApp } from 'firebase/app';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+        import { getFirestore, collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste } from 'lucide-react';
+
+        // ==========================================
+        // ▼▼▼ Firebase 設定 ▼▼▼
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyA1o7BjEcjZBEyjNKnVi5bknbkkJJSy0DI",
+            authDomain: "task-71198.firebaseapp.com",
+            projectId: "task-71198",
+            storageBucket: "task-71198.firebasestorage.app",
+            messagingSenderId: "192519078026",
+            appId: "1:192519078026:web:b283a50108f54bbd6d6d73",
+            measurementId: "G-29ZTR7DCJL"
+        };
+        // ==========================================
+
+        let app, auth, db;
+        try {
+            if (firebaseConfig.apiKey) {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+            }
+        } catch (error) {
+            console.error("Firebase Init Error", error);
+        }
+
+        const appId = 'my-ticket-app';
+
+        // 二維碼 (QR Code)
+        const QRCodeImage = ({ text, size = 150 }) => {
+            const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
+            return (
+                <div className="flex flex-col items-center">
+                    <span className="text-xs text-gray-400 mb-1">QR Code</span>
+                    <img src={url} alt="QR Code" className="rounded-lg border p-2 bg-white shadow-sm" />
+                </div>
+            );
+        };
+
+        // 一維碼 (Barcode - Code 128)
+        const BarcodeImage = ({ text }) => {
+            const url = `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(text)}&scale=2&includetext&backgroundcolor=ffffff&padding=10`;
+            return (
+                <div className="flex flex-col items-center w-full">
+                    <span className="text-xs text-gray-400 mb-1">Barcode</span>
+                    <img src={url} alt="Barcode" className="rounded-lg border p-2 bg-white shadow-sm max-w-full h-auto" />
+                </div>
+            );
+        };
+
+        const parseTicketInfo = (text) => {
+            const result = { isTicket: false, serial: '', productName: '', expiry: '', originalText: text };
+            
+            // 1. Extract Serial
+            const serialMatch = text.match(/(?:票券序號|序號)[:：]\s*([A-Za-z0-9]+)/);
+            if (serialMatch) { result.isTicket = true; result.serial = serialMatch[1]; }
+            
+            // 2. Extract Expiry (Enhanced for ranges)
+            const expiryLineMatch = text.match(/(?:兌換期限|優惠期限|期限)[:：]?\s*([^\n]*)/);
+            if (expiryLineMatch) {
+                const lineContent = expiryLineMatch[1];
+                const dateMatches = lineContent.match(/\d{4}[\/\-]\d{2}[\/\-]\d{2}/g);
+                if (dateMatches && dateMatches.length > 0) {
+                    result.expiry = dateMatches[dateMatches.length - 1];
+                }
+            }
+
+            // 3. Extract Name
+            const nameMatch = text.match(/【.*?】.*/);
+            if (nameMatch) { result.productName = nameMatch[0]; }
+            else if (result.isTicket) {
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+                const likelyName = lines.find(l => 
+                    l.includes('元') || l.includes('飲品') || l.includes('券') || l.includes('雞') || l.includes('堡') || l.includes('餐')
+                );
+                result.productName = likelyName || (lines[serialMatch ? lines.findIndex(l => l.includes('序號')) + 1 : 0] || "未命名票券");
+            }
+            if (result.isTicket && !result.productName) result.productName = "未命名票券";
+            
+            return result;
+        };
+
+        const formatTimestamp = (timestamp) => {
+            if (!timestamp) return '';
+            const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp);
+            return `${date.getFullYear()}/${(date.getMonth()+1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}`;
+        };
+
+        const LoginScreen = ({ onJoin, authError }) => {
+            const [code, setCode] = useState('');
+            const handleSubmit = (e) => { e.preventDefault(); if (code.trim().length > 0) onJoin(code.trim()); };
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+                    <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8">
+                        <div className="text-center mb-8">
+                            <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><LogIn className="text-blue-600 w-8 h-8" /></div>
+                            <h1 className="text-2xl font-bold text-gray-800">票券小幫手</h1>
+                            <p className="text-gray-500 mt-2">請輸入共用空間代碼以同步資料</p>
+                        </div>
+                        {authError && (
+                            <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-lg text-left">
+                                <h3 className="flex items-center gap-2 text-red-700 font-bold text-sm mb-1"><AlertTriangle size={16}/> 連線發生錯誤</h3>
+                                <p className="text-xs text-red-600">{authError}</p>
+                            </div>
+                        )}
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">空間代碼 (Workspace ID)</label>
+                                <input type="text" required placeholder="例如: my-tickets-2025" className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" value={code} onChange={(e) => setCode(e.target.value)} />
+                                <p className="text-xs text-gray-400 mt-1">在任何裝置輸入相同代碼即可看見相同清單。</p>
+                            </div>
+                            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2">進入清單 <ExternalLink size={18} /></button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const TaskItem = ({ task, onToggle, onDelete, onUpdateNote, onUpdateText, onUpdateTicket }) => {
+            const [showCodes, setShowCodes] = useState(false);
+            const isCompleted = task.completed;
+            const textClass = isCompleted ? 'text-gray-400 line-through' : 'text-gray-800';
+            const completedDate = task.completedAt ? formatTimestamp(task.completedAt) : '';
+
+            // --- Edit States ---
+            const [isEditingNote, setIsEditingNote] = useState(false);
+            const [noteDraft, setNoteDraft] = useState(task.note || '');
+            
+            const [isEditingContent, setIsEditingContent] = useState(false); // For both Ticket and Normal Text
+            const [editName, setEditName] = useState(task.productName || task.text || '');
+            const [editSerial, setEditSerial] = useState(task.serial || '');
+            const [editExpiry, setEditExpiry] = useState(task.expiry || '');
+
+            useEffect(() => { setNoteDraft(task.note || '') }, [task.note]);
+            useEffect(() => { 
+                setEditName(task.productName || task.text || '');
+                setEditSerial(task.serial || '');
+                setEditExpiry(task.expiry || '');
+            }, [task]);
+
+            // Save Handlers
+            const handleSaveNote = () => {
+                onUpdateNote(task.id, noteDraft);
+                setIsEditingNote(false);
+            };
+
+            const handleSaveContent = () => {
+                if (task.isTicket) {
+                    onUpdateTicket(task.id, editName, editSerial, editExpiry);
+                } else {
+                    onUpdateText(task.id, editName);
+                }
+                setIsEditingContent(false);
+            };
+
+            // Note Component
+            const NoteSection = () => (
+                <div className="w-full mt-2">
+                    {isEditingNote ? (
+                        <div className="flex flex-col gap-2 bg-yellow-50 p-2 rounded-lg border border-yellow-200 animate-in">
+                            <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="輸入備註..." className="w-full text-sm bg-transparent outline-none resize-none text-gray-700 min-h-[60px]" autoFocus />
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setIsEditingNote(false)} className="text-gray-400 hover:text-gray-600 p-1"><X size={16}/></button>
+                                <button onClick={handleSaveNote} className="flex items-center gap-1 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-3 py-1 rounded-md text-xs font-bold transition-colors"><Save size={14}/> 儲存</button>
+                            </div>
+                        </div>
+                    ) : (
+                        task.note && (
+                            <div onClick={() => setIsEditingNote(true)} className="bg-yellow-50 p-2 rounded-lg border border-yellow-100 text-sm text-gray-600 cursor-pointer hover:bg-yellow-100 transition-colors flex items-start gap-2">
+                                <StickyNote size={14} className="mt-0.5 text-yellow-500 flex-shrink-0" />
+                                <span className="break-words whitespace-pre-wrap">{task.note}</span>
+                            </div>
+                        )
+                    )}
+                </div>
+            );
+
+            // Ticket Editing View
+            if (isEditingContent && task.isTicket) {
+                return (
+                    <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-3">
+                        <div className="space-y-3">
+                            <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="品名" className="w-full border-b border-gray-200 p-1 outline-none focus:border-blue-500 font-bold text-gray-800" />
+                            <div className="flex gap-2">
+                                <input type="text" value={editSerial} onChange={(e) => setEditSerial(e.target.value)} placeholder="序號" className="flex-1 bg-gray-50 p-2 rounded text-sm font-mono outline-none focus:ring-1 focus:ring-blue-200" />
+                                <input type="text" value={editExpiry} onChange={(e) => setEditExpiry(e.target.value)} placeholder="期限 (YYYY/MM/DD)" className="w-1/3 bg-gray-50 p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-200" />
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button onClick={() => setIsEditingContent(false)} className="text-gray-500 text-sm px-3 py-1 hover:bg-gray-100 rounded">取消</button>
+                                <button onClick={handleSaveContent} className="bg-blue-600 text-white text-sm px-4 py-1 rounded hover:bg-blue-700 font-medium">儲存</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Normal Text Editing View
+            if (isEditingContent && !task.isTicket) {
+                return (
+                    <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-3">
+                        <div className="space-y-2">
+                            <textarea value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full text-base border border-blue-100 bg-blue-50/30 rounded p-2 outline-none focus:ring-2 focus:ring-blue-200 resize-none min-h-[80px]" autoFocus />
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setIsEditingContent(false)} className="text-gray-500 text-sm px-3 py-1 hover:bg-gray-100 rounded">取消</button>
+                                <button onClick={handleSaveContent} className="bg-blue-600 text-white text-sm px-4 py-1 rounded hover:bg-blue-700 font-medium">儲存</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // --- READ ONLY VIEW (Ticket & Normal) ---
+            return (
+                <div className={`rounded-xl shadow-sm border p-4 mb-3 flex flex-col gap-2 hover:shadow-md transition-shadow group ${isCompleted ? 'border-gray-200 bg-gray-50/50' : 'bg-white border-gray-100'}`}>
+                    <div className="flex items-start gap-3">
+                        <button onClick={() => onToggle(task)} className={`mt-1 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${isCompleted ? 'border-green-500 bg-green-500 text-white hover:bg-green-600' : 'border-gray-300 hover:border-blue-500 text-transparent hover:text-blue-500'}`} title={isCompleted ? "點擊復原為未完成" : "點擊完成"}>
+                            {isCompleted ? <RotateCcw size={14} /> : <Check size={14} strokeWidth={3} />}
+                        </button>
+                        
+                        <div className="flex-1 min-w-0">
+                            {/* Content */}
+                            {task.isTicket ? (
+                                <div>
+                                    <div className="flex justify-between items-start flex-wrap gap-2">
+                                        <h3 className={`font-bold text-lg leading-tight mb-1 ${textClass}`}>{task.productName}</h3>
+                                        {task.expiry && <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${isCompleted ? 'bg-gray-200 text-gray-500' : (new Date(task.expiry) < new Date() ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700')}`}>{task.expiry} 到期</span>}
+                                    </div>
+                                    <div className={`text-sm font-mono inline-block px-2 py-0.5 rounded mt-1 border ${isCompleted ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>{task.serial}</div>
+                                </div>
+                            ) : (
+                                <div className={`break-words whitespace-pre-wrap ${textClass}`}>{task.text}</div>
+                            )}
+                            
+                            <NoteSection />
+
+                            {/* Ticket Buttons */}
+                            {task.isTicket && (
+                                <div className="mt-3 flex gap-2 items-center flex-wrap">
+                                    <button onClick={() => setShowCodes(!showCodes)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${showCodes ? 'bg-blue-600 text-white' : (isCompleted ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' : 'bg-blue-50 text-blue-600 hover:bg-blue-100')}`}>
+                                        <ScanBarcode size={16} /> {showCodes ? '隱藏條碼' : '顯示條碼'}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Right Side Action Buttons */}
+                        <div className="flex flex-col gap-1 items-center">
+                            {!isCompleted && (
+                                <>
+                                    <button onClick={() => setIsEditingContent(true)} className="text-gray-400 hover:text-blue-600 transition-colors p-1" title="編輯內容">
+                                        <Pencil size={18} />
+                                    </button>
+                                    {!task.note && !isEditingNote && (
+                                        <button onClick={() => setIsEditingNote(true)} className="text-gray-400 hover:text-yellow-500 transition-colors p-1" title="新增備註">
+                                            <StickyNote size={18} />
+                                        </button>
+                                    )}
+                                </>
+                            )}
+                            {/* Delete button always available now, but maybe emphasized differently */}
+                            <button onClick={() => onDelete(task.id)} className={`transition-colors p-1 ${isCompleted ? 'text-gray-400 hover:text-red-500' : 'text-gray-300 hover:text-red-500 opacity-50 hover:opacity-100'}`} title="刪除">
+                                <Trash2 size={18} />
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {/* Completion Date */}
+                    {isCompleted && completedDate && <div className="pl-9 flex items-center"><span className="text-xs text-gray-400 flex items-center gap-1"><Clock size={10} /> {completedDate}</span></div>}
+
+                    {/* QR/Barcode Display Area */}
+                    {task.isTicket && showCodes && (
+                        <div className="bg-gray-50 p-4 border-t border-gray-100 flex flex-col items-center gap-6 animate-in slide-in-from-top-2 duration-200 mt-2">
+                            <BarcodeImage text={task.serial} />
+                            <QRCodeImage text={task.serial} size={150} />
+                            <div className="text-xs text-gray-400 font-mono tracking-widest">{task.serial}</div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [workspaceId, setWorkspaceId] = useState(() => localStorage.getItem('ticket_workspace_id') || '');
+            const [tasks, setTasks] = useState([]);
+            const [inputMode, setInputMode] = useState('paste'); 
+            const [pasteVal, setPasteVal] = useState('');
+            const [manualName, setManualName] = useState('');
+            const [manualSerial, setManualSerial] = useState('');
+            const [manualExpiry, setManualExpiry] = useState('');
+            const [isJoined, setIsJoined] = useState(false);
+            const [loading, setLoading] = useState(true);
+            const [viewStatus, setViewStatus] = useState('active');
+            const [filterType, setFilterType] = useState('all');
+            const [sortType, setSortType] = useState('newest');
+            const [authError, setAuthError] = useState('');
+
+            useEffect(() => {
+                const initAuth = async () => {
+                    if (!auth) return;
+                    try { await signInAnonymously(auth); } 
+                    catch (e) { 
+                        console.error("Auth failed:", e);
+                        setAuthError(e.message);
+                    }
+                };
+                initAuth();
+                if (auth) {
+                    const unsubscribe = onAuthStateChanged(auth, (u) => {
+                        setUser(u);
+                        if (u) setAuthError('');
+                        if (workspaceId) setIsJoined(true);
+                    });
+                    return () => unsubscribe();
+                } else { setLoading(false); }
+            }, []);
+
+            useEffect(() => {
+                if (!user || !workspaceId || !db) { setLoading(false); return; }
+                setLoading(true);
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', workspaceId), orderBy('createdAt', 'desc'));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    setLoading(false);
+                }, (error) => { console.error("Fetch error:", error); setLoading(false); });
+                return () => unsubscribe();
+            }, [user, workspaceId]);
+
+            const processedTasks = useMemo(() => {
+                let result = [...tasks];
+                if (viewStatus === 'active') result = result.filter(t => !t.completed);
+                else result = result.filter(t => t.completed);
+                if (filterType === 'ticket') result = result.filter(t => t.isTicket);
+                else if (filterType === 'normal') result = result.filter(t => !t.isTicket);
+                if (sortType === 'expiring') result.sort((a, b) => { if (a.expiry && b.expiry) return new Date(a.expiry) - new Date(b.expiry); if (a.expiry) return -1; if (b.expiry) return 1; return 0; });
+                else if (sortType === 'oldest') result.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+                else result.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                return result;
+            }, [tasks, viewStatus, filterType, sortType]);
+
+            const handleJoin = (id) => { setWorkspaceId(id); localStorage.setItem('ticket_workspace_id', id); setIsJoined(true); };
+
+            const handleAddTask = async () => {
+                if (!user) { alert(`尚未連線到雲端資料庫。\n錯誤原因：${authError || "連線中..."}`); return; }
+
+                let newTask = {};
+                let isTicketType = false;
+
+                if (inputMode === 'paste') {
+                    if (!pasteVal.trim()) return;
+                    const parsed = parseTicketInfo(pasteVal);
+                    newTask = { 
+                        text: pasteVal, 
+                        isTicket: parsed.isTicket, 
+                        serial: parsed.serial, 
+                        productName: parsed.productName, 
+                        expiry: parsed.expiry, 
+                        completed: false, 
+                        createdAt: serverTimestamp(), 
+                        note: '' 
+                    };
+                    isTicketType = parsed.isTicket;
+                } else {
+                    if (!manualName.trim()) { alert("請輸入事項內容/品名"); return; }
+                    const hasSerial = manualSerial.trim().length > 0;
+                    const fmtExpiry = manualExpiry ? manualExpiry.replace(/-/g, '/') : '';
+                    newTask = {
+                        text: manualName,
+                        isTicket: hasSerial,
+                        serial: manualSerial.trim(),
+                        productName: manualName,
+                        expiry: fmtExpiry,
+                        completed: false,
+                        createdAt: serverTimestamp(),
+                        note: ''
+                    };
+                    isTicketType = hasSerial;
+                }
+
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', workspaceId), newTask);
+                    setPasteVal('');
+                    setManualName('');
+                    setManualSerial('');
+                    setManualExpiry('');
+                    if (viewStatus === 'completed') setViewStatus('active');
+                    if (filterType === 'normal' && isTicketType) setFilterType('all');
+                } catch (e) {
+                    console.error("Error adding task:", e);
+                    alert(`新增失敗：${e.message}`);
+                }
+            };
+
+            const handleToggleComplete = async (task) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { completed: !task.completed, completedAt: !task.completed ? serverTimestamp() : null }); } catch (e) { console.error(e); } };
+            const handleUpdateNote = async (id, newNote) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { note: newNote }); } catch (e) { console.error(e); } };
+            const handleUpdateText = async (id, newText) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { text: newText, productName: newText }); } catch (e) { console.error(e); } };
+            const handleUpdateTicket = async (id, name, serial, expiry) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { productName: name, serial: serial, expiry: expiry }); } catch (e) { console.error(e); } };
+            const handlePermanentDelete = async (id) => { if (!user) return; if (!window.confirm("確定要永久刪除此項目嗎？")) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id)); } catch (e) { console.error(e); } };
+            const handleLogout = () => { localStorage.removeItem('ticket_workspace_id'); setWorkspaceId(''); setIsJoined(false); setTasks([]); };
+
+            if (!auth && !firebaseConfig.apiKey) return <div className="min-h-screen flex items-center justify-center"><p>尚未設定 Config</p></div>;
+            
+            if (!isJoined && !user) return <LoginScreen onJoin={handleJoin} authError={authError} />;
+            if (isJoined && !user && authError) return <LoginScreen onJoin={handleJoin} authError={authError} />;
+            if (!isJoined) return <LoginScreen onJoin={handleJoin} authError={authError} />;
+
+            return (
+                <div className="min-h-screen bg-[#F8FAFC] text-gray-800 font-sans pb-24">
+                    <div className="bg-white sticky top-0 z-10 shadow-sm border-b border-gray-100">
+                        <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <div className="bg-blue-600 text-white p-1.5 rounded-lg"><Calendar size={20} /></div>
+                                <div>
+                                    <h1 className="font-bold text-lg leading-none flex items-center gap-2">
+                                        票券記事本
+                                        <span title={user ? "已連線" : "連線中..."} className={`w-2 h-2 rounded-full ${user ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></span>
+                                    </h1>
+                                    <p className="text-xs text-gray-400 mt-0.5 font-mono">ID: {workspaceId}</p>
+                                </div>
+                            </div>
+                            <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-500 px-3 py-1 rounded-md hover:bg-gray-50 transition-colors">切換空間</button>
+                        </div>
+                    </div>
+                    {authError && <div className="bg-red-50 text-red-600 px-4 py-2 text-sm text-center border-b border-red-100">連線錯誤：{authError}</div>}
+                    <div className="max-w-3xl mx-auto px-4 py-6">
+                        {viewStatus === 'active' && (
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-6 transition-all focus-within:shadow-md focus-within:border-blue-300 ring-4 ring-transparent focus-within:ring-blue-50">
+                                {/* 輸入模式切換 */}
+                                <div className="flex justify-end mb-2">
+                                    <button 
+                                        onClick={() => setInputMode(inputMode === 'paste' ? 'manual' : 'paste')}
+                                        className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded-md transition-colors"
+                                    >
+                                        {inputMode === 'paste' ? <Pencil size={12}/> : <ClipboardPaste size={12}/>}
+                                        {inputMode === 'paste' ? '切換手動輸入' : '切換快速貼上'}
+                                    </button>
+                                </div>
+
+                                {inputMode === 'paste' ? (
+                                    <textarea value={pasteVal} onChange={(e) => setPasteVal(e.target.value)} placeholder="直接貼上電子票券內容，自動辨識序號與期限..." className="w-full text-base resize-none outline-none text-gray-700 placeholder:text-gray-400 min-h-[80px]" rows={3} />
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div>
+                                            <input 
+                                                type="text" 
+                                                value={manualName} 
+                                                onChange={(e) => setManualName(e.target.value)}
+                                                placeholder="輸入事項內容或票券品名 (必填)" 
+                                                className="w-full text-base outline-none border-b border-gray-200 pb-1 focus:border-blue-500 placeholder:text-gray-400"
+                                            />
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <div className="flex-1">
+                                                <label className="text-xs text-gray-400 block mb-1">票券序號 (選填, 產生條碼用)</label>
+                                                <input 
+                                                    type="text" 
+                                                    value={manualSerial} 
+                                                    onChange={(e) => setManualSerial(e.target.value)}
+                                                    placeholder="輸入序號" 
+                                                    className="w-full text-sm outline-none bg-gray-50 p-2 rounded focus:ring-1 focus:ring-blue-200 font-mono"
+                                                />
+                                            </div>
+                                            <div className="w-1/3">
+                                                <label className="text-xs text-gray-400 block mb-1">到期日 (選填)</label>
+                                                <input 
+                                                    type="date" 
+                                                    value={manualExpiry} 
+                                                    onChange={(e) => setManualExpiry(e.target.value)}
+                                                    className="w-full text-sm outline-none bg-gray-50 p-2 rounded focus:ring-1 focus:ring-blue-200"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="flex justify-between items-center mt-3 border-t border-gray-50 pt-3">
+                                    <span className="text-xs text-gray-400 hidden sm:inline">
+                                        {inputMode === 'paste' ? '提示：貼上含「票券序號」文字將自動轉卡片' : '提示：輸入序號後將自動產生 QR Code 與 Barcode'}
+                                    </span>
+                                    <button 
+                                        onClick={handleAddTask} 
+                                        disabled={inputMode === 'paste' ? !pasteVal.trim() : !manualName.trim()} 
+                                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-5 py-2 rounded-xl font-medium transition-all flex items-center gap-2 ml-auto"
+                                    >
+                                        {user ? <Plus size={18} /> : <WifiOff size={18} />} {user ? '新增' : '連線中...'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        <div className="flex gap-4 mb-4 border-b border-gray-200">
+                            <button onClick={() => setViewStatus('active')} className={`pb-2 px-1 text-base font-medium transition-colors flex items-center gap-2 border-b-2 ${viewStatus === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><ListTodo size={18} /> 待辦事項 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => !t.completed).length}</span></button>
+                            <button onClick={() => setViewStatus('completed')} className={`pb-2 px-1 text-base font-medium transition-colors flex items-center gap-2 border-b-2 ${viewStatus === 'completed' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><CheckCircle2 size={18} /> 已完成 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => t.completed).length}</span></button>
+                        </div>
+                        {(tasks.length > 0) && (
+                            <div className="flex flex-col sm:flex-row gap-3 mb-4 justify-between items-start sm:items-center bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 no-scrollbar">
+                                    <Filter size={16} className="text-gray-400 flex-shrink-0" />
+                                    <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                                        <button onClick={() => setFilterType('all')} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${filterType === 'all' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>全部</button>
+                                        <button onClick={() => setFilterType('ticket')} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap flex items-center gap-1 ${filterType === 'ticket' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Tag size={14} /> 票券</button>
+                                        <button onClick={() => setFilterType('normal')} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${filterType === 'normal' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>一般</button>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 w-full sm:w-auto"><ArrowUpDown size={16} className="text-gray-400 flex-shrink-0" /><select value={sortType} onChange={(e) => setSortType(e.target.value)} className="w-full sm:w-auto bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2"><option value="newest">最新建立</option><option value="expiring">快到期優先</option><option value="oldest">最早建立</option></select></div>
+                            </div>
+                        )}
+                        {loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div> : tasks.length === 0 && viewStatus === 'active' ? <div className="text-center py-16 px-4"><div className="inline-block p-4 bg-gray-100 rounded-full mb-4"><Check size={32} className="text-gray-400" /></div><h3 className="text-gray-500 font-medium text-lg">目前沒有待辦事項</h3><p className="text-gray-400 text-sm mt-1">試著貼上一張電子票券看看！</p></div> : <div className="space-y-2"><div className="flex items-center justify-between px-1 mb-2"><h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{viewStatus === 'active' ? '待辦清單' : '已完成項目'} • 共 {processedTasks.length} 筆</h2></div>{processedTasks.length === 0 ? <div className="text-center py-10 bg-white rounded-xl border border-dashed border-gray-300"><p className="text-gray-400">{viewStatus === 'active' ? '沒有符合條件的待辦事項' : '沒有已完成的項目'}</p>{viewStatus === 'active' && filterType !== 'all' && <button onClick={() => setFilterType('all')} className="mt-2 text-blue-600 text-sm hover:underline">清除篩選</button>}</div> : processedTasks.map(task => <TaskItem key={task.id} task={task} onToggle={handleToggleComplete} onDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateText={handleUpdateText} onUpdateTicket={handleUpdateTicket} />)}</div>}
+                    </div>
+                    {viewStatus === 'active' && <div className="fixed bottom-6 right-6 md:hidden"><button onClick={() => document.querySelector('textarea')?.focus()} className="bg-blue-600 text-white p-4 rounded-full shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95"><Plus size={24} /></button></div>}
+                </div>
+            );
+        };
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
