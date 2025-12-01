@@ -42,8 +42,8 @@
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-        import { getFirestore, collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
-        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste } from 'lucide-react';
+        import { getFirestore, collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp, getDocs, writeBatch } from 'firebase/firestore';
+        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy } from 'lucide-react';
 
         // ==========================================
         // ▼▼▼ Firebase 設定 ▼▼▼
@@ -97,11 +97,9 @@
         const parseTicketInfo = (text) => {
             const result = { isTicket: false, serial: '', productName: '', expiry: '', originalText: text };
             
-            // 1. Extract Serial
             const serialMatch = text.match(/(?:票券序號|序號)[:：]\s*([A-Za-z0-9]+)/);
             if (serialMatch) { result.isTicket = true; result.serial = serialMatch[1]; }
             
-            // 2. Extract Expiry (Enhanced for ranges)
             const expiryLineMatch = text.match(/(?:兌換期限|優惠期限|期限)[:：]?\s*([^\n]*)/);
             if (expiryLineMatch) {
                 const lineContent = expiryLineMatch[1];
@@ -111,7 +109,6 @@
                 }
             }
 
-            // 3. Extract Name
             const nameMatch = text.match(/【.*?】.*/);
             if (nameMatch) { result.productName = nameMatch[0]; }
             else if (result.isTicket) {
@@ -168,11 +165,9 @@
             const textClass = isCompleted ? 'text-gray-400 line-through' : 'text-gray-800';
             const completedDate = task.completedAt ? formatTimestamp(task.completedAt) : '';
 
-            // --- Edit States ---
             const [isEditingNote, setIsEditingNote] = useState(false);
             const [noteDraft, setNoteDraft] = useState(task.note || '');
-            
-            const [isEditingContent, setIsEditingContent] = useState(false); // For both Ticket and Normal Text
+            const [isEditingContent, setIsEditingContent] = useState(false);
             const [editName, setEditName] = useState(task.productName || task.text || '');
             const [editSerial, setEditSerial] = useState(task.serial || '');
             const [editExpiry, setEditExpiry] = useState(task.expiry || '');
@@ -184,22 +179,13 @@
                 setEditExpiry(task.expiry || '');
             }, [task]);
 
-            // Save Handlers
-            const handleSaveNote = () => {
-                onUpdateNote(task.id, noteDraft);
-                setIsEditingNote(false);
-            };
-
+            const handleSaveNote = () => { onUpdateNote(task.id, noteDraft); setIsEditingNote(false); };
             const handleSaveContent = () => {
-                if (task.isTicket) {
-                    onUpdateTicket(task.id, editName, editSerial, editExpiry);
-                } else {
-                    onUpdateText(task.id, editName);
-                }
+                if (task.isTicket) { onUpdateTicket(task.id, editName, editSerial, editExpiry); } 
+                else { onUpdateText(task.id, editName); }
                 setIsEditingContent(false);
             };
 
-            // Note Component
             const NoteSection = () => (
                 <div className="w-full mt-2">
                     {isEditingNote ? (
@@ -221,7 +207,6 @@
                 </div>
             );
 
-            // Ticket Editing View
             if (isEditingContent && task.isTicket) {
                 return (
                     <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-3">
@@ -240,7 +225,6 @@
                 );
             }
 
-            // Normal Text Editing View
             if (isEditingContent && !task.isTicket) {
                 return (
                     <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-3">
@@ -255,7 +239,6 @@
                 );
             }
 
-            // --- READ ONLY VIEW (Ticket & Normal) ---
             return (
                 <div className={`rounded-xl shadow-sm border p-4 mb-3 flex flex-col gap-2 hover:shadow-md transition-shadow group ${isCompleted ? 'border-gray-200 bg-gray-50/50' : 'bg-white border-gray-100'}`}>
                     <div className="flex items-start gap-3">
@@ -264,7 +247,6 @@
                         </button>
                         
                         <div className="flex-1 min-w-0">
-                            {/* Content */}
                             {task.isTicket ? (
                                 <div>
                                     <div className="flex justify-between items-start flex-wrap gap-2">
@@ -276,10 +258,7 @@
                             ) : (
                                 <div className={`break-words whitespace-pre-wrap ${textClass}`}>{task.text}</div>
                             )}
-                            
                             <NoteSection />
-
-                            {/* Ticket Buttons */}
                             {task.isTicket && (
                                 <div className="mt-3 flex gap-2 items-center flex-wrap">
                                     <button onClick={() => setShowCodes(!showCodes)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${showCodes ? 'bg-blue-600 text-white' : (isCompleted ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' : 'bg-blue-50 text-blue-600 hover:bg-blue-100')}`}>
@@ -289,31 +268,17 @@
                             )}
                         </div>
 
-                        {/* Right Side Action Buttons */}
                         <div className="flex flex-col gap-1 items-center">
                             {!isCompleted && (
                                 <>
-                                    <button onClick={() => setIsEditingContent(true)} className="text-gray-400 hover:text-blue-600 transition-colors p-1" title="編輯內容">
-                                        <Pencil size={18} />
-                                    </button>
-                                    {!task.note && !isEditingNote && (
-                                        <button onClick={() => setIsEditingNote(true)} className="text-gray-400 hover:text-yellow-500 transition-colors p-1" title="新增備註">
-                                            <StickyNote size={18} />
-                                        </button>
-                                    )}
+                                    <button onClick={() => setIsEditingContent(true)} className="text-gray-400 hover:text-blue-600 transition-colors p-1" title="編輯內容"><Pencil size={18} /></button>
+                                    {!task.note && !isEditingNote && <button onClick={() => setIsEditingNote(true)} className="text-gray-400 hover:text-yellow-500 transition-colors p-1" title="新增備註"><StickyNote size={18} /></button>}
                                 </>
                             )}
-                            {/* Delete button always available now, but maybe emphasized differently */}
-                            <button onClick={() => onDelete(task.id)} className={`transition-colors p-1 ${isCompleted ? 'text-gray-400 hover:text-red-500' : 'text-gray-300 hover:text-red-500 opacity-50 hover:opacity-100'}`} title="刪除">
-                                <Trash2 size={18} />
-                            </button>
+                            <button onClick={() => onDelete(task.id)} className={`transition-colors p-1 ${isCompleted ? 'text-gray-400 hover:text-red-500' : 'text-gray-300 hover:text-red-500 opacity-50 hover:opacity-100'}`} title="刪除"><Trash2 size={18} /></button>
                         </div>
                     </div>
-                    
-                    {/* Completion Date */}
                     {isCompleted && completedDate && <div className="pl-9 flex items-center"><span className="text-xs text-gray-400 flex items-center gap-1"><Clock size={10} /> {completedDate}</span></div>}
-
-                    {/* QR/Barcode Display Area */}
                     {task.isTicket && showCodes && (
                         <div className="bg-gray-50 p-4 border-t border-gray-100 flex flex-col items-center gap-6 animate-in slide-in-from-top-2 duration-200 mt-2">
                             <BarcodeImage text={task.serial} />
@@ -321,6 +286,47 @@
                             <div className="text-xs text-gray-400 font-mono tracking-widest">{task.serial}</div>
                         </div>
                     )}
+                </div>
+            );
+        };
+
+        const MigrationModal = ({ isOpen, onClose, currentSpaceId, onMigrate }) => {
+            const [targetId, setTargetId] = useState('');
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
+                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+                        <div className="flex items-center gap-3 mb-4 text-blue-600">
+                            <div className="bg-blue-100 p-2 rounded-lg"><ArrowRightLeft size={24} /></div>
+                            <h2 className="text-xl font-bold">資料搬家 (複製)</h2>
+                        </div>
+                        <p className="text-gray-600 mb-4 text-sm">
+                            將目前空間 <b>{currentSpaceId}</b> 的所有資料，複製到另一個新的空間代碼。
+                            <br/><br/>
+                            <span className="text-orange-500 text-xs">注意：這會將資料「追加」到目標空間，原本的資料不會被刪除。</span>
+                        </p>
+                        <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">目標空間代碼 (Target ID)</label>
+                            <input 
+                                type="text" 
+                                value={targetId}
+                                onChange={(e) => setTargetId(e.target.value)}
+                                placeholder="例如: new-space-2026"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                            />
+                        </div>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={onClose} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg text-sm">取消</button>
+                            <button 
+                                onClick={() => onMigrate(targetId)} 
+                                disabled={!targetId.trim() || targetId === currentSpaceId}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:bg-gray-300 flex items-center gap-2"
+                            >
+                                <Copy size={16}/> 開始複製
+                            </button>
+                        </div>
+                    </div>
                 </div>
             );
         };
@@ -340,6 +346,10 @@
             const [filterType, setFilterType] = useState('all');
             const [sortType, setSortType] = useState('newest');
             const [authError, setAuthError] = useState('');
+            
+            // Migration State
+            const [showMigration, setShowMigration] = useState(false);
+            const [isMigrating, setIsMigrating] = useState(false);
 
             useEffect(() => {
                 const initAuth = async () => {
@@ -444,6 +454,54 @@
             const handlePermanentDelete = async (id) => { if (!user) return; if (!window.confirm("確定要永久刪除此項目嗎？")) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id)); } catch (e) { console.error(e); } };
             const handleLogout = () => { localStorage.removeItem('ticket_workspace_id'); setWorkspaceId(''); setIsJoined(false); setTasks([]); };
 
+            // --- MIGRATION LOGIC ---
+            const handleMigrate = async (targetId) => {
+                if (!targetId || targetId === workspaceId) return;
+                setIsMigrating(true);
+                try {
+                    const sourceRef = collection(db, 'artifacts', appId, 'public', 'data', workspaceId);
+                    const snapshot = await getDocs(sourceRef);
+                    
+                    if (snapshot.empty) {
+                        alert("目前空間沒有資料可以搬移");
+                        setIsMigrating(false);
+                        return;
+                    }
+
+                    // Firestore batch limit is 500. We'll chunk it to be safe (400)
+                    const chunks = [];
+                    let batch = writeBatch(db);
+                    let count = 0;
+
+                    snapshot.docs.forEach((docSnap) => {
+                        const data = docSnap.data();
+                        // New doc ref in target collection
+                        const newRef = doc(collection(db, 'artifacts', appId, 'public', 'data', targetId));
+                        batch.set(newRef, data);
+                        count++;
+                        if (count >= 400) {
+                            chunks.push(batch);
+                            batch = writeBatch(db);
+                            count = 0;
+                        }
+                    });
+                    if (count > 0) chunks.push(batch);
+
+                    // Commit all batches
+                    await Promise.all(chunks.map(b => b.commit()));
+                    
+                    if (confirm(`成功搬移 ${snapshot.size} 筆資料到「${targetId}」！\n\n是否要直接切換到新空間？`)) {
+                        handleJoin(targetId);
+                    }
+                    setShowMigration(false);
+                } catch (e) {
+                    console.error("Migration failed:", e);
+                    alert("搬移失敗：" + e.message);
+                } finally {
+                    setIsMigrating(false);
+                }
+            };
+
             if (!auth && !firebaseConfig.apiKey) return <div className="min-h-screen flex items-center justify-center"><p>尚未設定 Config</p></div>;
             
             if (!isJoined && !user) return <LoginScreen onJoin={handleJoin} authError={authError} />;
@@ -464,14 +522,23 @@
                                     <p className="text-xs text-gray-400 mt-0.5 font-mono">ID: {workspaceId}</p>
                                 </div>
                             </div>
-                            <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-500 px-3 py-1 rounded-md hover:bg-gray-50 transition-colors">切換空間</button>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => setShowMigration(true)}
+                                    className="text-sm text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors flex items-center gap-1"
+                                    title="資料搬家/複製"
+                                >
+                                    <ArrowRightLeft size={16} /> <span className="hidden sm:inline">搬家</span>
+                                </button>
+                                <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-500 px-3 py-1 rounded-md hover:bg-gray-50 transition-colors">切換空間</button>
+                            </div>
                         </div>
                     </div>
                     {authError && <div className="bg-red-50 text-red-600 px-4 py-2 text-sm text-center border-b border-red-100">連線錯誤：{authError}</div>}
                     <div className="max-w-3xl mx-auto px-4 py-6">
+                        {/* ... Input Section ... */}
                         {viewStatus === 'active' && (
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-6 transition-all focus-within:shadow-md focus-within:border-blue-300 ring-4 ring-transparent focus-within:ring-blue-50">
-                                {/* 輸入模式切換 */}
                                 <div className="flex justify-end mb-2">
                                     <button 
                                         onClick={() => setInputMode(inputMode === 'paste' ? 'manual' : 'paste')}
@@ -487,33 +554,16 @@
                                 ) : (
                                     <div className="space-y-3">
                                         <div>
-                                            <input 
-                                                type="text" 
-                                                value={manualName} 
-                                                onChange={(e) => setManualName(e.target.value)}
-                                                placeholder="輸入事項內容或票券品名 (必填)" 
-                                                className="w-full text-base outline-none border-b border-gray-200 pb-1 focus:border-blue-500 placeholder:text-gray-400"
-                                            />
+                                            <input type="text" value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="輸入事項內容或票券品名 (必填)" className="w-full text-base outline-none border-b border-gray-200 pb-1 focus:border-blue-500 placeholder:text-gray-400" />
                                         </div>
                                         <div className="flex gap-3">
                                             <div className="flex-1">
-                                                <label className="text-xs text-gray-400 block mb-1">票券序號 (選填, 產生條碼用)</label>
-                                                <input 
-                                                    type="text" 
-                                                    value={manualSerial} 
-                                                    onChange={(e) => setManualSerial(e.target.value)}
-                                                    placeholder="輸入序號" 
-                                                    className="w-full text-sm outline-none bg-gray-50 p-2 rounded focus:ring-1 focus:ring-blue-200 font-mono"
-                                                />
+                                                <label className="text-xs text-gray-400 block mb-1">票券序號 (選填)</label>
+                                                <input type="text" value={manualSerial} onChange={(e) => setManualSerial(e.target.value)} placeholder="輸入序號" className="w-full text-sm outline-none bg-gray-50 p-2 rounded focus:ring-1 focus:ring-blue-200 font-mono" />
                                             </div>
                                             <div className="w-1/3">
                                                 <label className="text-xs text-gray-400 block mb-1">到期日 (選填)</label>
-                                                <input 
-                                                    type="date" 
-                                                    value={manualExpiry} 
-                                                    onChange={(e) => setManualExpiry(e.target.value)}
-                                                    className="w-full text-sm outline-none bg-gray-50 p-2 rounded focus:ring-1 focus:ring-blue-200"
-                                                />
+                                                <input type="date" value={manualExpiry} onChange={(e) => setManualExpiry(e.target.value)} className="w-full text-sm outline-none bg-gray-50 p-2 rounded focus:ring-1 focus:ring-blue-200" />
                                             </div>
                                         </div>
                                     </div>
@@ -553,6 +603,24 @@
                         {loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div> : tasks.length === 0 && viewStatus === 'active' ? <div className="text-center py-16 px-4"><div className="inline-block p-4 bg-gray-100 rounded-full mb-4"><Check size={32} className="text-gray-400" /></div><h3 className="text-gray-500 font-medium text-lg">目前沒有待辦事項</h3><p className="text-gray-400 text-sm mt-1">試著貼上一張電子票券看看！</p></div> : <div className="space-y-2"><div className="flex items-center justify-between px-1 mb-2"><h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{viewStatus === 'active' ? '待辦清單' : '已完成項目'} • 共 {processedTasks.length} 筆</h2></div>{processedTasks.length === 0 ? <div className="text-center py-10 bg-white rounded-xl border border-dashed border-gray-300"><p className="text-gray-400">{viewStatus === 'active' ? '沒有符合條件的待辦事項' : '沒有已完成的項目'}</p>{viewStatus === 'active' && filterType !== 'all' && <button onClick={() => setFilterType('all')} className="mt-2 text-blue-600 text-sm hover:underline">清除篩選</button>}</div> : processedTasks.map(task => <TaskItem key={task.id} task={task} onToggle={handleToggleComplete} onDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateText={handleUpdateText} onUpdateTicket={handleUpdateTicket} />)}</div>}
                     </div>
                     {viewStatus === 'active' && <div className="fixed bottom-6 right-6 md:hidden"><button onClick={() => document.querySelector('textarea')?.focus()} className="bg-blue-600 text-white p-4 rounded-full shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95"><Plus size={24} /></button></div>}
+                    
+                    {/* Migration Modal */}
+                    {showMigration && (
+                        <MigrationModal 
+                            isOpen={showMigration} 
+                            onClose={() => setShowMigration(false)} 
+                            currentSpaceId={workspaceId} 
+                            onMigrate={handleMigrate}
+                        />
+                    )}
+                    {isMigrating && (
+                        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center">
+                            <div className="bg-white p-6 rounded-xl flex flex-col items-center gap-4">
+                                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+                                <p className="font-bold text-gray-700">正在搬移資料中...</p>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
