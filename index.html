@@ -91,25 +91,25 @@
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
         import { getFirestore, collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, serverTimestamp, getDocs, writeBatch } from 'firebase/firestore';
-        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder, AlertCircle, Settings, LogOut, FileWarning, Image as ImageIcon, Link as LinkIcon, Palette, Upload, ShieldCheck } from 'lucide-react';
+        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder, AlertCircle, Settings, LogOut, FileWarning, Image as ImageIcon, Link as LinkIcon, Palette, Upload } from 'lucide-react';
 
         // ==========================================
-        // ▼▼▼ Firebase 設定 (已填入您的專案資料) ▼▼▼
+        // ▼▼▼ 請在此填入您的 Firebase 設定 ▼▼▼
         // ==========================================
         const firebaseConfig = {
-            apiKey: "AIzaSyA1o7BjEcjZBEyjNKnVi5bknbkkJJSy0DI",
-            authDomain: "task-71198.firebaseapp.com",
-            projectId: "task-71198",
-            storageBucket: "task-71198.firebasestorage.app",
-            messagingSenderId: "192519078026",
-            appId: "1:192519078026:web:b283a50108f54bbd6d6d73",
-            measurementId: "G-29ZTR7DCJL"
+            apiKey: "請在此填入您的API_KEY",
+            authDomain: "您的專案.firebaseapp.com",
+            projectId: "您的專案ID",
+            storageBucket: "您的專案.appspot.com",
+            messagingSenderId: "您的ID",
+            appId: "您的APP_ID",
+            measurementId: "可選"
         };
         // ==========================================
 
         let app, auth, db;
         try {
-            if (firebaseConfig.apiKey) {
+            if (firebaseConfig.apiKey && firebaseConfig.apiKey.length > 20 && !firebaseConfig.apiKey.includes("請在此填入")) {
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
@@ -121,8 +121,7 @@
         }
 
         const appId = 'my-ticket-app';
-        const TAGS_DOC_ID = '__tags__'; 
-        const WORKSPACES_COLLECTION = 'workspaces'; 
+        const TAGS_DOC_ID = 'tags_metadata'; 
 
         const compressImage = (file) => {
             return new Promise((resolve) => {
@@ -280,83 +279,7 @@
             );
         };
 
-        const AdminModal = ({ isOpen, onClose, onJoinSpace }) => {
-            const [password, setPassword] = useState('');
-            const [isAuthenticated, setIsAuthenticated] = useState(false);
-            const [allWorkspaces, setAllWorkspaces] = useState([]);
-            const [loading, setLoading] = useState(false);
-            const [errorMsg, setErrorMsg] = useState('');
-
-            useEffect(() => {
-                if (isAuthenticated && isOpen) {
-                    if (!db) {
-                        setErrorMsg("資料庫未初始化，請檢查 API Key 設定。");
-                        return;
-                    }
-                    
-                    setLoading(true);
-                    setErrorMsg('');
-                    const q = query(collection(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION), orderBy('updatedAt', 'desc'));
-                    getDocs(q).then(snapshot => {
-                        const wss = snapshot.docs.map(doc => ({ id: doc.id, date: doc.data().updatedAt?.seconds * 1000 }));
-                        setAllWorkspaces(wss);
-                        setLoading(false);
-                    }).catch(e => {
-                        console.error("Admin fetch failed", e);
-                        setErrorMsg("無法讀取列表，請確認 Firebase 規則或網路連線。");
-                        setLoading(false);
-                    });
-                }
-            }, [isAuthenticated, isOpen]);
-
-            const handleLogin = () => {
-                if (password === 'admin888') setIsAuthenticated(true);
-                else alert('密碼錯誤');
-            };
-
-            if (!isOpen) return null;
-
-            return (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
-                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 h-[500px] flex flex-col">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold flex items-center gap-2"><ShieldCheck/> 管理員後台</h2>
-                            <button onClick={onClose}><X size={20} className="text-gray-400"/></button>
-                        </div>
-                        {!isAuthenticated ? (
-                            <div className="flex-1 flex flex-col justify-center gap-4">
-                                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="請輸入管理密碼 (預設 admin888)" className="w-full px-3 py-2 border rounded-lg" onKeyDown={e=>e.key==='Enter'&&handleLogin()}/>
-                                <button onClick={handleLogin} className="w-full bg-gray-800 text-white py-2 rounded-lg">登入</button>
-                            </div>
-                        ) : (
-                            <div className="flex-1 overflow-hidden flex flex-col">
-                                <div className="flex justify-between items-center mb-2">
-                                    <p className="text-sm text-gray-500">已追蹤的空間列表 ({allWorkspaces.length})</p>
-                                    <button onClick={() => setIsAuthenticated(false)} className="text-xs text-gray-400 underline">登出</button>
-                                </div>
-                                {errorMsg && <div className="text-red-500 text-xs mb-2">{errorMsg}</div>}
-                                {loading ? <div className="flex justify-center p-4">載入中...</div> : (
-                                    allWorkspaces.length === 0 ? <p className="text-center text-gray-400 mt-10">目前沒有活躍的空間紀錄<br/><span className="text-xs">只要有人進入空間，就會自動出現在這裡</span></p> :
-                                    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                                        {allWorkspaces.map(ws => (
-                                            <div key={ws.id} className="flex justify-between items-center p-3 bg-gray-50 rounded border hover:bg-blue-50">
-                                                <div className="flex flex-col">
-                                                    <span className="font-mono text-sm font-bold">{ws.id}</span>
-                                                    <span className="text-xs text-gray-400">上次活動: {ws.date ? new Date(ws.date).toLocaleDateString() : '未知'}</span>
-                                                </div>
-                                                <button onClick={() => { onJoinSpace(ws.id); onClose(); }} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700">進入</button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        };
-
-        const SettingsMenu = ({ isOpen, onClose, onMigrateClick, onDeleteSpaceClick, onLogoutClick, onBgClick, onAdminClick }) => {
+        const SettingsMenu = ({ isOpen, onClose, onMigrateClick, onDeleteSpaceClick, onLogoutClick, onBgClick }) => {
             const menuRef = useRef(null);
             useEffect(() => {
                 const handleClickOutside = (event) => { if (menuRef.current && !menuRef.current.contains(event.target)) onClose(); };
@@ -369,7 +292,6 @@
                     <button onClick={() => { onMigrateClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"><ArrowRightLeft size={16} /> 資料搬家</button>
                     <button onClick={() => { onBgClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><Palette size={16} /> 設定背景</button>
                     <button onClick={() => { onLogoutClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><LogOut size={16} /> 切換空間</button>
-                    <button onClick={() => { onAdminClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><ShieldCheck size={16} /> 管理員登入</button>
                     <button onClick={() => { onDeleteSpaceClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50"><FileWarning size={16} /> 刪除此空間</button>
                 </div>
             );
@@ -554,7 +476,6 @@
             const [isMigrating, setIsMigrating] = useState(false);
             const [showSettings, setShowSettings] = useState(false);
             const [showBgModal, setShowBgModal] = useState(false);
-            const [showAdmin, setShowAdmin] = useState(false);
 
             useEffect(() => { localStorage.setItem('pref_filterType', filterType); }, [filterType]);
             useEffect(() => { localStorage.setItem('pref_sortType', sortType); }, [sortType]);
@@ -583,16 +504,6 @@
                     return () => unsubscribe();
                 } else { setLoading(false); }
             }, []);
-
-            // Auto-track workspace presence
-            useEffect(() => {
-                if (user && isJoined && workspaceId && db) {
-                    setDoc(doc(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION, workspaceId), {
-                        id: workspaceId,
-                        updatedAt: serverTimestamp()
-                    }, { merge: true }).catch(err => console.log("Tracking failed", err));
-                }
-            }, [user, isJoined, workspaceId]);
 
             // Data Sync (Tasks) 
             useEffect(() => {
@@ -785,7 +696,6 @@
                         if (count >= 400) { chunks.push(batch); batch = writeBatch(db); count = 0; }
                     });
                     batch.delete(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID));
-                    batch.delete(doc(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION, workspaceId));
                     if (count > 0 || true) chunks.push(batch);
 
                     await Promise.all(chunks.map(b => b.commit()));
@@ -840,7 +750,7 @@
                                     </div>
                                 </div>
                                 <button onClick={() => setShowSettings(!showSettings)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"><Settings size={20} /></button>
-                                <SettingsMenu isOpen={showSettings} onClose={() => setShowSettings(false)} onMigrateClick={() => setShowMigration(true)} onDeleteSpaceClick={handleDeleteSpace} onLogoutClick={handleLogout} onAdminClick={() => setShowAdmin(true)} onBgClick={() => setShowBgModal(true)} />
+                                <SettingsMenu isOpen={showSettings} onClose={() => setShowSettings(false)} onMigrateClick={() => setShowMigration(true)} onDeleteSpaceClick={handleDeleteSpace} onLogoutClick={handleLogout} onBgClick={() => setShowBgModal(true)} onAdminClick={() => {}} />
                             </div>
                             
                             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
@@ -964,7 +874,6 @@
                     
                     {showMigration && <MigrationModal isOpen={showMigration} onClose={() => setShowMigration(false)} currentSpaceId={workspaceId} onMigrate={handleMigrate}/>}
                     {showBgModal && <BackgroundModal isOpen={showBgModal} onClose={() => setShowBgModal(false)} />}
-                    {showAdmin && <AdminModal isOpen={showAdmin} onClose={() => setShowAdmin(false)} onJoinSpace={handleJoin} />}
                     {isMigrating && <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center"><div className="bg-white p-6 rounded-xl flex flex-col items-center gap-4"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p className="font-bold text-gray-700">處理中...</p></div></div>}
                 </div>
             );
