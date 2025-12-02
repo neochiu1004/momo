@@ -31,6 +31,12 @@
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-in { animation: fadeIn 0.3s ease-out forwards; }
+        /* 隱藏 number input 的箭頭 */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
     </style>
 </head>
 <body class="bg-[#F8FAFC]">
@@ -288,51 +294,6 @@
             );
         };
 
-        const TagManagerModal = ({ isOpen, onClose, tags, onAddTag, onDeleteTag, onRenameTag }) => {
-            const [newTag, setNewTag] = useState('');
-            const [editingTag, setEditingTag] = useState(null); 
-            const [editValue, setEditValue] = useState(''); 
-
-            if (!isOpen) return null;
-
-            const startEdit = (tag) => { setEditingTag(tag); setEditValue(tag); };
-            const saveEdit = () => { if (editValue.trim() && editValue !== editingTag) { onRenameTag(editingTag, editValue.trim()); } setEditingTag(null); };
-
-            return (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
-                    <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
-                        <h2 className="text-lg font-bold mb-4 flex items-center gap-2"><Tag size={20}/> 管理標籤</h2>
-                        <div className="flex gap-2 mb-4">
-                            <input type="text" value={newTag} onChange={(e) => setNewTag(e.target.value)} placeholder="新標籤名稱" className="flex-1 px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
-                            <button onClick={() => { if(newTag.trim()) { onAddTag(newTag.trim()); setNewTag(''); } }} className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700"><Plus size={18}/></button>
-                        </div>
-                        <div className="max-h-60 overflow-y-auto space-y-2">
-                            {tags.length === 0 ? <p className="text-gray-400 text-sm text-center py-4">尚無自訂標籤</p> : tags.map(tag => (
-                                <div key={tag} className="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
-                                    {editingTag === tag ? (
-                                        <div className="flex gap-2 flex-1">
-                                            <input type="text" value={editValue} onChange={(e) => setEditValue(e.target.value)} className="w-full border-b border-blue-500 outline-none text-sm" autoFocus />
-                                            <button onClick={saveEdit} className="text-green-600 hover:text-green-700"><Check size={16}/></button>
-                                            <button onClick={() => setEditingTag(null)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <span className="text-gray-700 font-medium">{tag}</span>
-                                            <div className="flex gap-1">
-                                                <button onClick={() => startEdit(tag)} className="text-gray-400 hover:text-blue-600 p-1"><Pencil size={14}/></button>
-                                                <button onClick={() => { if(confirm(`確定刪除標籤「${tag}」嗎？`)) onDeleteTag(tag); }} className="text-red-400 hover:text-red-600 p-1"><X size={16}/></button>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                        <button onClick={onClose} className="w-full mt-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg">關閉</button>
-                    </div>
-                </div>
-            );
-        };
-
         const App = () => {
             const [user, setUser] = useState(null);
             const [workspaceId, setWorkspaceId] = useState(() => localStorage.getItem('ticket_workspace_id') || '');
@@ -358,7 +319,6 @@
             const [searchQuery, setSearchQuery] = useState('');
             const [isSelectionMode, setIsSelectionMode] = useState(false);
             const [selectedTasks, setSelectedTasks] = useState(new Set());
-            const [showTagManager, setShowTagManager] = useState(false);
             const [showMigration, setShowMigration] = useState(false);
             const [isMigrating, setIsMigrating] = useState(false);
 
@@ -435,26 +395,28 @@
 
                 if (searchQuery.trim()) {
                     const q = searchQuery.toLowerCase();
-                    result = result.filter(t => 
-                        (t.productName || '').toLowerCase().includes(q) || 
-                        (t.text || '').toLowerCase().includes(q) ||
-                        (t.serial || '').toLowerCase().includes(q) ||
-                        (t.note || '').toLowerCase().includes(q)
-                    );
+                    result = result.filter(t => {
+                        const inName = (t.productName || '').toLowerCase().includes(q);
+                        const inSerial = (t.serial || '').toLowerCase().includes(q);
+                        const inNote = (t.note || '').toLowerCase().includes(q);
+                        // 票券只搜尋品名/序號/備註 (排除原始全文)，一般任務搜尋全文
+                        const inText = !t.isTicket && (t.text || '').toLowerCase().includes(q);
+                        return inName || inSerial || inNote || inText;
+                    });
                 }
 
                 if (sortType === 'expiring') result.sort((a, b) => { if (a.expiry && b.expiry) return new Date(a.expiry) - new Date(b.expiry); if (a.expiry) return -1; if (b.expiry) return 1; return 0; });
                 else if (sortType === 'oldest') result.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
                 else result.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
                 return result;
-            }, [tasks, viewStatus, filterType, sortType, currentTagFilter, searchQuery]);
+            }, [tasks, viewStatus, filterType, sortType, currentTagFilter, searchQuery, expiryThreshold]);
 
             const handleJoin = (id) => { setWorkspaceId(id); localStorage.setItem('ticket_workspace_id', id); setIsJoined(true); };
 
             const handleAddTask = async () => {
                 if (!user) return;
                 let newTask = {};
-                const currentTagToSave = (currentTagFilter !== 'all' && currentTagFilter !== 'uncategorized') ? currentTagFilter : 'default';
+                const currentTagToSave = (currentTagFilter !== 'all') ? currentTagFilter : 'default';
 
                 if (inputMode === 'paste') {
                     if (!pasteVal.trim()) return;
@@ -488,39 +450,6 @@
             const handlePermanentDelete = async (id) => { if (!user) return; if(confirm("確定永久刪除？")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id)); };
             const handleLogout = () => { localStorage.removeItem('ticket_workspace_id'); setWorkspaceId(''); setIsJoined(false); setTasks([]); };
 
-            const handleAddTag = async (newTag) => {
-                if (!user || tags.includes(newTag)) return;
-                const updatedTags = [...tags, newTag];
-                try {
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID), { list: updatedTags }, { merge: true });
-                } catch (e) { console.error("Add tag error:", e); alert("新增標籤失敗"); }
-            };
-            const handleDeleteTag = async (tagToDelete) => {
-                if (!user) return;
-                const updatedTags = tags.filter(t => t !== tagToDelete);
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID), { list: updatedTags }, { merge: true });
-                const tasksToUpdate = tasks.filter(t => t.tag === tagToDelete);
-                const batch = writeBatch(db);
-                tasksToUpdate.forEach(t => {
-                    batch.update(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id), { tag: 'default' });
-                });
-                await batch.commit();
-                if (currentTagFilter === tagToDelete) setCurrentTagFilter('all');
-            };
-            const handleRenameTag = async (oldTag, newTag) => {
-                if (!user || !newTag.trim() || newTag === oldTag || tags.includes(newTag)) return;
-                const updatedTags = tags.map(t => t === oldTag ? newTag : t);
-                const batch = writeBatch(db);
-                const tagDocRef = doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID);
-                batch.set(tagDocRef, { list: updatedTags }, { merge: true });
-                const tasksToUpdate = tasks.filter(t => t.tag === oldTag);
-                tasksToUpdate.forEach(t => {
-                    batch.update(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id), { tag: newTag });
-                });
-                await batch.commit();
-                if (currentTagFilter === oldTag) setCurrentTagFilter(newTag);
-            };
-
             const handleSelect = (id) => {
                 const newSet = new Set(selectedTasks);
                 if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
@@ -544,6 +473,12 @@
                 });
                 await batch.commit();
                 setIsSelectionMode(false); setSelectedTasks(new Set());
+                
+                // Add tag if not exists
+                if (targetTag !== 'default' && !tags.includes(targetTag)) {
+                    const updatedTags = [...tags, targetTag];
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID), { list: updatedTags }, { merge: true });
+                }
             };
 
             const handleBatchDelete = async () => {
@@ -622,8 +557,6 @@
                                         <Tag size={12} /> {tag}
                                     </button>
                                 ))}
-                                <button onClick={() => setCurrentTagFilter('uncategorized')} className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-colors ${currentTagFilter === 'uncategorized' ? 'bg-gray-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>未分類</button>
-                                <button onClick={() => setShowTagManager(true)} className="px-2 py-1.5 rounded-lg text-sm text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-100 whitespace-nowrap flex items-center gap-1"><FolderPlus size={14}/> 管理</button>
                             </div>
                         </div>
                     </div>
@@ -632,18 +565,15 @@
                         {/* Expiry Settings */}
                         <div className="flex justify-end mb-2">
                             <div className="flex items-center gap-2 bg-gray-50 px-2 py-1 rounded-md text-xs text-gray-500">
-                                <Clock size={12} /> 到期提示: 
-                                <select 
+                                <Clock size={12} /> 到期提示: <span className="text-gray-400">小於</span>
+                                <input 
+                                    type="number" 
+                                    min="1"
                                     value={expiryThreshold} 
-                                    onChange={(e) => setExpiryThreshold(parseInt(e.target.value))}
-                                    className="bg-transparent outline-none font-bold text-gray-700"
-                                >
-                                    <option value="7">7天</option>
-                                    <option value="14">14天</option>
-                                    <option value="30">30天</option>
-                                    <option value="60">60天</option>
-                                    <option value="90">90天</option>
-                                </select>
+                                    onChange={(e) => setExpiryThreshold(Math.max(1, parseInt(e.target.value) || 0))}
+                                    className="bg-transparent outline-none font-bold text-gray-700 w-12 text-center border-b border-gray-300 focus:border-blue-500"
+                                />
+                                <span className="text-gray-400">天</span>
                             </div>
                         </div>
 
@@ -651,7 +581,7 @@
                         {viewStatus === 'active' && (
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-4 transition-all focus-within:ring-2 focus-within:ring-blue-100">
                                 <div className="flex justify-between mb-2">
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">新增項目到: {currentTagFilter === 'all' || currentTagFilter === 'uncategorized' ? '未分類' : currentTagFilter}</span>
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">新增項目到: {currentTagFilter === 'all' ? '未分類' : currentTagFilter}</span>
                                     <button onClick={() => setInputMode(inputMode === 'paste' ? 'manual' : 'paste')} className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded transition-colors">{inputMode === 'paste' ? <Pencil size={12}/> : <ClipboardPaste size={12}/>} {inputMode === 'paste' ? '手動' : '貼上'}</button>
                                 </div>
                                 {inputMode === 'paste' ? (
@@ -685,19 +615,27 @@
                                             {selectedTasks.size === processedTasks.length && processedTasks.length > 0 ? '取消全選' : '全選'}
                                         </button>
                                         <div className="h-6 w-px bg-gray-300 mx-1"></div>
-                                        {/* Batch Actions */}
+                                        {/* Batch Actions: Editable Dropdown for Tags */}
                                         {selectedTasks.size > 0 && (
-                                            <div className="flex gap-2 animate-in fade-in zoom-in duration-200">
+                                            <div className="flex gap-2 animate-in fade-in zoom-in duration-200 items-center">
                                                 {viewStatus !== 'deleted' && (
-                                                    <select 
-                                                        onChange={(e) => { if(e.target.value) handleBatchMoveTag(e.target.value); }} 
-                                                        className="bg-indigo-50 text-indigo-700 text-sm px-2 py-1.5 rounded-md border-indigo-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                                        value=""
-                                                    >
-                                                        <option value="" disabled>移動到...</option>
-                                                        <option value="default">未分類</option>
-                                                        {tags.map(t => <option key={t} value={t}>{t}</option>)}
-                                                    </select>
+                                                    <div className="relative">
+                                                        <input 
+                                                            list="tag-options"
+                                                            placeholder="移動/新增標籤..." 
+                                                            className="bg-indigo-50 text-indigo-700 text-sm px-2 py-1.5 rounded-md border-indigo-100 focus:ring-2 focus:ring-indigo-500 outline-none w-32"
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter' && e.target.value.trim()) {
+                                                                    handleBatchMoveTag(e.target.value.trim());
+                                                                    e.target.value = '';
+                                                                }
+                                                            }}
+                                                        />
+                                                        <datalist id="tag-options">
+                                                            <option value="default">未分類</option>
+                                                            {tags.map(t => <option key={t} value={t} />)}
+                                                        </datalist>
+                                                    </div>
                                                 )}
                                                 <button onClick={handleBatchDelete} className="px-3 py-1.5 bg-red-100 text-red-700 rounded-md text-sm hover:bg-red-200 flex items-center gap-1"><Trash size={14}/> 刪除</button>
                                             </div>
@@ -743,8 +681,6 @@
 
                     {viewStatus === 'active' && <div className="fixed bottom-6 right-6 md:hidden"><button onClick={() => document.querySelector('textarea')?.focus()} className="bg-blue-600 text-white p-4 rounded-full shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95"><Plus size={24} /></button></div>}
                     
-                    {/* Modals */}
-                    <TagManagerModal isOpen={showTagManager} onClose={() => setShowTagManager(false)} tags={tags} onAddTag={handleAddTag} onDeleteTag={handleDeleteTag} onRenameTag={handleRenameTag} />
                     {showMigration && <MigrationModal isOpen={showMigration} onClose={() => setShowMigration(false)} currentSpaceId={workspaceId} onMigrate={handleMigrate}/>}
                     {isMigrating && <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center"><div className="bg-white p-6 rounded-xl flex flex-col items-center gap-4"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p className="font-bold text-gray-700">處理中...</p></div></div>}
                 </div>
