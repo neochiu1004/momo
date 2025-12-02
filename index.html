@@ -258,10 +258,26 @@
             );
         };
 
-        // --- Tag Manager Modal ---
-        const TagManagerModal = ({ isOpen, onClose, tags, onAddTag, onDeleteTag }) => {
+        // --- Tag Manager Modal (Renaming + Adding) ---
+        const TagManagerModal = ({ isOpen, onClose, tags, onAddTag, onDeleteTag, onRenameTag }) => {
             const [newTag, setNewTag] = useState('');
+            const [editingTag, setEditingTag] = useState(null); // The tag currently being edited
+            const [editValue, setEditValue] = useState(''); // The new name
+
             if (!isOpen) return null;
+
+            const startEdit = (tag) => {
+                setEditingTag(tag);
+                setEditValue(tag);
+            };
+
+            const saveEdit = () => {
+                if (editValue.trim() && editValue !== editingTag) {
+                    onRenameTag(editingTag, editValue.trim());
+                }
+                setEditingTag(null);
+            };
+
             return (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
                     <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
@@ -273,8 +289,21 @@
                         <div className="max-h-60 overflow-y-auto space-y-2">
                             {tags.length === 0 ? <p className="text-gray-400 text-sm text-center py-4">尚無自訂標籤</p> : tags.map(tag => (
                                 <div key={tag} className="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
-                                    <span className="text-gray-700 font-medium">{tag}</span>
-                                    <button onClick={() => { if(confirm(`確定刪除標籤「${tag}」嗎？\n(原本屬於此標籤的任務將變為未分類)`)) onDeleteTag(tag); }} className="text-red-400 hover:text-red-600"><X size={16}/></button>
+                                    {editingTag === tag ? (
+                                        <div className="flex gap-2 flex-1">
+                                            <input type="text" value={editValue} onChange={(e) => setEditValue(e.target.value)} className="w-full border-b border-blue-500 outline-none text-sm" autoFocus />
+                                            <button onClick={saveEdit} className="text-green-600 hover:text-green-700"><Check size={16}/></button>
+                                            <button onClick={() => setEditingTag(null)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <span className="text-gray-700 font-medium">{tag}</span>
+                                            <div className="flex gap-1">
+                                                <button onClick={() => startEdit(tag)} className="text-gray-400 hover:text-blue-600 p-1"><Pencil size={14}/></button>
+                                                <button onClick={() => { if(confirm(`確定刪除標籤「${tag}」嗎？`)) onDeleteTag(tag); }} className="text-red-400 hover:text-red-600 p-1"><X size={16}/></button>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -331,26 +360,37 @@
                 } else { setLoading(false); }
             }, []);
 
-            // Data Sync (Tasks & Tags)
+            // Data Sync (Tasks) - Keep existing ordering logic for tasks
             useEffect(() => {
                 if (!user || !workspaceId || !db) { setLoading(false); return; }
                 setLoading(true);
+                // 讀取任務 (過濾掉 tags 檔案)
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', workspaceId), orderBy('createdAt', 'desc'));
                 const unsubscribe = onSnapshot(q, (snapshot) => {
                     const loadedTasks = [];
-                    let loadedTags = [];
                     snapshot.docs.forEach(doc => {
-                        if (doc.id === TAGS_DOC_ID) {
-                            loadedTags = doc.data().list || [];
-                        } else {
+                        if (doc.id !== TAGS_DOC_ID) {
                             loadedTasks.push({ id: doc.id, ...doc.data() });
                         }
                     });
                     setTasks(loadedTasks);
-                    setTags(loadedTags);
                     setLoading(false);
-                }, (error) => { console.error("Fetch error:", error); setLoading(false); });
+                }, (error) => { console.error("Fetch Tasks error:", error); setLoading(false); });
                 return () => unsubscribe();
+            }, [user, workspaceId]);
+
+            // Data Sync (Tags) - Separate Listener
+            useEffect(() => {
+                if (!user || !workspaceId || !db) return;
+                const tagDocRef = doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID);
+                const unsubscribeTags = onSnapshot(tagDocRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        setTags(docSnap.data().list || []);
+                    } else {
+                        setTags([]); // Initialize empty if doc doesn't exist
+                    }
+                }, (error) => { console.error("Fetch Tags error:", error); });
+                return () => unsubscribeTags();
             }, [user, workspaceId]);
 
             // --- Logic: Processed Tasks (Filters & Search) ---
@@ -452,6 +492,21 @@
                 await batch.commit();
                 if (currentTagFilter === tagToDelete) setCurrentTagFilter('all');
             };
+            const handleRenameTag = async (oldTag, newTag) => {
+                if (!user || !newTag.trim() || newTag === oldTag || tags.includes(newTag)) return;
+                const updatedTags = tags.map(t => t === oldTag ? newTag : t);
+                const batch = writeBatch(db);
+                // 1. Update tag list
+                const tagDocRef = doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID);
+                batch.set(tagDocRef, { list: updatedTags }, { merge: true });
+                // 2. Update all tasks
+                const tasksToUpdate = tasks.filter(t => t.tag === oldTag);
+                tasksToUpdate.forEach(t => {
+                    batch.update(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id), { tag: newTag });
+                });
+                await batch.commit();
+                if (currentTagFilter === oldTag) setCurrentTagFilter(newTag);
+            };
 
             // Batch Operations
             const handleSelect = (id) => {
@@ -494,7 +549,6 @@
                 if (trashItems.length === 0) return;
                 if (!confirm(`⚠️ 警告：確定清空垃圾桶中的 ${trashItems.length} 個項目嗎？此動作無法復原！`)) return;
                 
-                // Batch delete (limit 500)
                 const batch = writeBatch(db);
                 trashItems.forEach(t => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id)));
                 await batch.commit();
@@ -661,7 +715,7 @@
                     {viewStatus === 'active' && <div className="fixed bottom-6 right-6 md:hidden"><button onClick={() => document.querySelector('textarea')?.focus()} className="bg-blue-600 text-white p-4 rounded-full shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95"><Plus size={24} /></button></div>}
                     
                     {/* Modals */}
-                    <TagManagerModal isOpen={showTagManager} onClose={() => setShowTagManager(false)} tags={tags} onAddTag={handleAddTag} onDeleteTag={handleDeleteTag} />
+                    <TagManagerModal isOpen={showTagManager} onClose={() => setShowTagManager(false)} tags={tags} onAddTag={handleAddTag} onDeleteTag={handleDeleteTag} onRenameTag={handleRenameTag} />
                     {showMigration && <MigrationModal isOpen={showMigration} onClose={() => setShowMigration(false)} currentSpaceId={workspaceId} onMigrate={handleMigrate}/>}
                     {isMigrating && <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center"><div className="bg-white p-6 rounded-xl flex flex-col items-center gap-4"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p className="font-bold text-gray-700">處理中...</p></div></div>}
                 </div>
