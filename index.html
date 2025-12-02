@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>雲端票券待辦清單</title>
     
-    <!-- 1. 引入 Tailwind CSS -->
+    <!-- 1. 引入 Tailwind CSS (樣式) -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- 2. 引入 Babel -->
+    <!-- 2. 引入 Babel (讓瀏覽器看懂 React JSX) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <!-- 3. 設定 Import Map -->
@@ -45,8 +45,8 @@
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
-            opacity: 0.9; /* 稍微透明一點以免干擾文字 */
-            background-color: #F8FAFC; /* 預設背景色 */
+            opacity: 0.9; 
+            background-color: #F8FAFC; 
         }
     </style>
 </head>
@@ -63,9 +63,12 @@
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
         import { getFirestore, collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, serverTimestamp, getDocs, writeBatch } from 'firebase/firestore';
-        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder, AlertCircle, Settings, LogOut, FileWarning, Image as ImageIcon, Link as LinkIcon, ShieldCheck, Palette, Upload } from 'lucide-react';
+        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder, AlertCircle, Settings, LogOut, FileWarning, Image as ImageIcon, Link as LinkIcon, Palette, Upload } from 'lucide-react';
 
+        // 外部設定檔讀取
         const externalConfig = window.MY_FIREBASE_CONFIG || {};
+
+        // Firebase 設定
         const firebaseConfig = externalConfig.apiKey ? externalConfig : {
             apiKey: "AIzaSyA1o7BjEcjZBEyjNKnVi5bknbkkJJSy0DI",
             authDomain: "task-71198.firebaseapp.com",
@@ -87,7 +90,6 @@
 
         const appId = 'my-ticket-app';
         const TAGS_DOC_ID = '__tags__'; 
-        const WORKSPACES_COLLECTION = 'workspaces'; 
 
         const compressImage = (file) => {
             return new Promise((resolve) => {
@@ -163,7 +165,7 @@
             return diffDays <= thresholdDays;
         };
 
-        // --- Modals & Components ---
+        // --- Modals ---
 
         const BackgroundModal = ({ isOpen, onClose }) => {
             const [bgUrl, setBgUrl] = useState('');
@@ -216,75 +218,7 @@
             );
         };
 
-        const AdminModal = ({ isOpen, onClose, onJoinSpace }) => {
-            const [password, setPassword] = useState('');
-            const [isAuthenticated, setIsAuthenticated] = useState(false);
-            const [allWorkspaces, setAllWorkspaces] = useState([]);
-            const [loading, setLoading] = useState(false);
-
-            useEffect(() => {
-                if (isAuthenticated && isOpen) {
-                    setLoading(true);
-                    const q = query(collection(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION), orderBy('updatedAt', 'desc'));
-                    getDocs(q).then(snapshot => {
-                        const wss = snapshot.docs.map(doc => ({ id: doc.id, date: doc.data().updatedAt?.seconds * 1000 }));
-                        setAllWorkspaces(wss);
-                        setLoading(false);
-                    }).catch(e => {
-                        console.error("Admin fetch failed", e);
-                        setLoading(false);
-                        // 如果是因為權限不足或沒有資料，顯示空陣列
-                    });
-                }
-            }, [isAuthenticated, isOpen]);
-
-            const handleLogin = () => {
-                if (password === 'admin888') setIsAuthenticated(true);
-                else alert('密碼錯誤');
-            };
-
-            if (!isOpen) return null;
-
-            return (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
-                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 h-[500px] flex flex-col">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold flex items-center gap-2"><ShieldCheck/> 管理員後台</h2>
-                            <button onClick={onClose}><X size={20} className="text-gray-400"/></button>
-                        </div>
-                        {!isAuthenticated ? (
-                            <div className="flex-1 flex flex-col justify-center gap-4">
-                                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="請輸入管理密碼 (預設 admin888)" className="w-full px-3 py-2 border rounded-lg" onKeyDown={e=>e.key==='Enter'&&handleLogin()}/>
-                                <button onClick={handleLogin} className="w-full bg-gray-800 text-white py-2 rounded-lg">登入</button>
-                            </div>
-                        ) : (
-                            <div className="flex-1 overflow-hidden flex flex-col">
-                                <div className="flex justify-between items-center mb-2">
-                                    <p className="text-sm text-gray-500">已追蹤的空間列表 ({allWorkspaces.length})</p>
-                                    <button onClick={() => setIsAuthenticated(false)} className="text-xs text-gray-400 underline">登出</button>
-                                </div>
-                                {loading ? <div className="flex justify-center p-4">載入中...</div> : (
-                                    allWorkspaces.length === 0 ? <p className="text-center text-gray-400 mt-10">目前沒有活躍的空間紀錄<br/><span className="text-xs">只要有人進入空間，就會自動出現在這裡</span></p> :
-                                    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                                        {allWorkspaces.map(ws => (
-                                            <div key={ws.id} className="flex justify-between items-center p-3 bg-gray-50 rounded border hover:bg-blue-50">
-                                                <div className="flex flex-col">
-                                                    <span className="font-mono text-sm font-bold">{ws.id}</span>
-                                                    <span className="text-xs text-gray-400">上次活動: {ws.date ? new Date(ws.date).toLocaleDateString() : '未知'}</span>
-                                                </div>
-                                                <button onClick={() => { onJoinSpace(ws.id); onClose(); }} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700">進入</button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        };
-
-        const SettingsMenu = ({ isOpen, onClose, onMigrateClick, onDeleteSpaceClick, onLogoutClick, onAdminClick, onBgClick }) => {
+        const SettingsMenu = ({ isOpen, onClose, onMigrateClick, onDeleteSpaceClick, onLogoutClick, onBgClick }) => {
             const menuRef = useRef(null);
             useEffect(() => {
                 const handleClickOutside = (event) => { if (menuRef.current && !menuRef.current.contains(event.target)) onClose(); };
@@ -297,14 +231,12 @@
                     <button onClick={() => { onMigrateClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"><ArrowRightLeft size={16} /> 資料搬家</button>
                     <button onClick={() => { onBgClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><Palette size={16} /> 設定背景</button>
                     <button onClick={() => { onLogoutClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><LogOut size={16} /> 切換空間</button>
-                    <button onClick={() => { onAdminClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><ShieldCheck size={16} /> 管理員登入</button>
                     <button onClick={() => { onDeleteSpaceClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50"><FileWarning size={16} /> 刪除此空間</button>
                 </div>
             );
         };
 
         const TaskItem = ({ task, onToggle, onDelete, onRestore, onPermanentDelete, onUpdateNote, onUpdateTask, isSelectionMode, isSelected, onSelect, expiryThreshold }) => {
-            // ... (TaskItem code same as before, simplified for this block but included in final full copy) ...
             const [showCodes, setShowCodes] = useState(false);
             const isCompleted = task.completed;
             const isDeleted = task.isDeleted;
@@ -379,10 +311,10 @@
             );
 
             let containerStyle = `rounded-xl shadow-sm border p-4 mb-3 flex flex-col gap-2 hover:shadow-md transition-shadow group relative `;
-            if (isDeleted) containerStyle += 'bg-red-50/80 border-red-100 opacity-80'; // Slightly more visible for deleted
+            if (isDeleted) containerStyle += 'bg-red-50/80 border-red-100 opacity-80'; 
             else if (isCompleted) containerStyle += 'bg-gray-50/80 border-gray-200';
             else if (isExpiring) containerStyle += 'bg-white/90 border-red-300 ring-1 ring-red-300';
-            else containerStyle += 'bg-white/90 border-gray-100'; // Added opacity for background image visibility
+            else containerStyle += 'bg-white/90 border-gray-100'; 
             
             if (isSelected) containerStyle += ' ring-2 ring-blue-400 border-blue-400';
 
@@ -482,7 +414,6 @@
             const [showMigration, setShowMigration] = useState(false);
             const [isMigrating, setIsMigrating] = useState(false);
             const [showSettings, setShowSettings] = useState(false);
-            const [showAdmin, setShowAdmin] = useState(false);
             const [showBgModal, setShowBgModal] = useState(false);
 
             useEffect(() => { localStorage.setItem('pref_filterType', filterType); }, [filterType]);
@@ -511,17 +442,7 @@
                 } else { setLoading(false); }
             }, []);
 
-            // Track Workspace Presence Logic: Auto-register workspace for admin
-            useEffect(() => {
-                if (user && isJoined && workspaceId && db) {
-                    // Update timestamp on join/load
-                    setDoc(doc(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION, workspaceId), {
-                        id: workspaceId,
-                        updatedAt: serverTimestamp()
-                    }, { merge: true }).catch(err => console.log("Tracking init failed", err));
-                }
-            }, [user, isJoined, workspaceId]);
-
+            // Data Sync (Tasks) 
             useEffect(() => {
                 if (!user || !workspaceId || !db) { setLoading(false); return; }
                 setLoading(true);
@@ -537,6 +458,7 @@
                 return () => unsubscribe();
             }, [user, workspaceId]);
 
+            // Data Sync (Tags)
             useEffect(() => {
                 if (!user || !workspaceId || !db) return;
                 const tagDocRef = doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID);
@@ -711,7 +633,6 @@
                         if (count >= 400) { chunks.push(batch); batch = writeBatch(db); count = 0; }
                     });
                     batch.delete(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID));
-                    batch.delete(doc(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION, workspaceId));
                     if (count > 0 || true) chunks.push(batch);
 
                     await Promise.all(chunks.map(b => b.commit()));
@@ -759,7 +680,7 @@
                                     </div>
                                 </div>
                                 <button onClick={() => setShowSettings(!showSettings)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"><Settings size={20} /></button>
-                                <SettingsMenu isOpen={showSettings} onClose={() => setShowSettings(false)} onMigrateClick={() => setShowMigration(true)} onDeleteSpaceClick={handleDeleteSpace} onLogoutClick={handleLogout} onAdminClick={() => setShowAdmin(true)} onBgClick={() => setShowBgModal(true)} />
+                                <SettingsMenu isOpen={showSettings} onClose={() => setShowSettings(false)} onMigrateClick={() => setShowMigration(true)} onDeleteSpaceClick={handleDeleteSpace} onLogoutClick={handleLogout} onAdminClick={() => {}} onBgClick={() => setShowBgModal(true)} />
                             </div>
                             
                             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
@@ -882,7 +803,6 @@
                     {viewStatus === 'active' && <div className="fixed bottom-6 right-6 md:hidden"><button onClick={() => document.querySelector('textarea')?.focus()} className="bg-blue-600 text-white p-4 rounded-full shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95"><Plus size={24} /></button></div>}
                     
                     {showMigration && <MigrationModal isOpen={showMigration} onClose={() => setShowMigration(false)} currentSpaceId={workspaceId} onMigrate={handleMigrate}/>}
-                    {showAdmin && <AdminModal isOpen={showAdmin} onClose={() => setShowAdmin(false)} onJoinSpace={handleJoin} />}
                     {showBgModal && <BackgroundModal isOpen={showBgModal} onClose={() => setShowBgModal(false)} />}
                     {isMigrating && <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center"><div className="bg-white p-6 rounded-xl flex flex-col items-center gap-4"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p className="font-bold text-gray-700">處理中...</p></div></div>}
                 </div>
