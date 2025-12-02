@@ -48,10 +48,38 @@
             opacity: 0.9; 
             background-color: #F8FAFC; 
         }
+        
+        /* 錯誤訊息層 */
+        #error-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: white; z-index: 9999;
+            padding: 20px; color: red; font-family: monospace;
+            overflow: auto;
+        }
     </style>
 </head>
 <body>
     
+    <!-- 錯誤顯示層 -->
+    <div id="error-overlay">
+        <h2 style="font-size: 1.5em; margin-bottom: 10px;">⚠️ 程式發生錯誤</h2>
+        <p>請截圖此畫面並檢查設定：</p>
+        <pre id="error-msg" style="background: #eee; padding: 10px; border-radius: 5px; white-space: pre-wrap;"></pre>
+    </div>
+
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            document.getElementById('error-overlay').style.display = 'block';
+            document.getElementById('error-msg').innerText = `Error: ${message}\nSource: ${source}:${lineno}\n\n${error ? error.stack : ''}`;
+        };
+        window.onunhandledrejection = function(event) {
+            document.getElementById('error-overlay').style.display = 'block';
+            document.getElementById('error-msg').innerText = `Promise Error: ${event.reason}`;
+        };
+    </script>
+
     <!-- 背景層 -->
     <div id="bg-layer"></div>
     <!-- App 掛載點 -->
@@ -63,13 +91,12 @@
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
         import { getFirestore, collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, serverTimestamp, getDocs, writeBatch } from 'firebase/firestore';
-        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder, AlertCircle, Settings, LogOut, FileWarning, Image as ImageIcon, Link as LinkIcon, Palette, Upload } from 'lucide-react';
+        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder, AlertCircle, Settings, LogOut, FileWarning, Image as ImageIcon, Link as LinkIcon, Palette, Upload, ShieldCheck } from 'lucide-react';
 
-        // 外部設定檔讀取
-        const externalConfig = window.MY_FIREBASE_CONFIG || {};
-
-        // Firebase 設定
-        const firebaseConfig = externalConfig.apiKey ? externalConfig : {
+        // ==========================================
+        // ▼▼▼ Firebase 設定 (已填入您的專案資料) ▼▼▼
+        // ==========================================
+        const firebaseConfig = {
             apiKey: "AIzaSyA1o7BjEcjZBEyjNKnVi5bknbkkJJSy0DI",
             authDomain: "task-71198.firebaseapp.com",
             projectId: "task-71198",
@@ -78,6 +105,7 @@
             appId: "1:192519078026:web:b283a50108f54bbd6d6d73",
             measurementId: "G-29ZTR7DCJL"
         };
+        // ==========================================
 
         let app, auth, db;
         try {
@@ -85,11 +113,16 @@
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
+            } else {
+                console.warn("Firebase Config尚未填寫或不正確");
             }
-        } catch (error) { console.error("Firebase Init Error", error); }
+        } catch (error) {
+            console.error("Firebase Init Error", error);
+        }
 
         const appId = 'my-ticket-app';
         const TAGS_DOC_ID = '__tags__'; 
+        const WORKSPACES_COLLECTION = 'workspaces'; 
 
         const compressImage = (file) => {
             return new Promise((resolve) => {
@@ -165,7 +198,36 @@
             return diffDays <= thresholdDays;
         };
 
-        // --- Modals ---
+        // --- Modals & Components ---
+
+        const LoginScreen = ({ onJoin, authError }) => {
+            const [code, setCode] = useState('');
+            const handleSubmit = (e) => { e.preventDefault(); if (code.trim().length > 0) onJoin(code.trim()); };
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+                    <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8">
+                        <div className="text-center mb-8">
+                            <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><LogIn className="text-blue-600 w-8 h-8" /></div>
+                            <h1 className="text-2xl font-bold text-gray-800">票券小幫手</h1>
+                            <p className="text-gray-500 mt-2">請輸入共用空間代碼以同步資料</p>
+                        </div>
+                        {authError && (
+                            <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-lg text-left">
+                                <h3 className="flex items-center gap-2 text-red-700 font-bold text-sm mb-1"><AlertTriangle size={16}/> 連線發生錯誤</h3>
+                                <p className="text-xs text-red-600">{authError}</p>
+                            </div>
+                        )}
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">空間代碼 (Workspace ID)</label>
+                                <input type="text" required placeholder="例如: my-tickets-2025" className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" value={code} onChange={(e) => setCode(e.target.value)} />
+                            </div>
+                            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2">進入清單 <ExternalLink size={18} /></button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
 
         const BackgroundModal = ({ isOpen, onClose }) => {
             const [bgUrl, setBgUrl] = useState('');
@@ -218,7 +280,83 @@
             );
         };
 
-        const SettingsMenu = ({ isOpen, onClose, onMigrateClick, onDeleteSpaceClick, onLogoutClick, onBgClick }) => {
+        const AdminModal = ({ isOpen, onClose, onJoinSpace }) => {
+            const [password, setPassword] = useState('');
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [allWorkspaces, setAllWorkspaces] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [errorMsg, setErrorMsg] = useState('');
+
+            useEffect(() => {
+                if (isAuthenticated && isOpen) {
+                    if (!db) {
+                        setErrorMsg("資料庫未初始化，請檢查 API Key 設定。");
+                        return;
+                    }
+                    
+                    setLoading(true);
+                    setErrorMsg('');
+                    const q = query(collection(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION), orderBy('updatedAt', 'desc'));
+                    getDocs(q).then(snapshot => {
+                        const wss = snapshot.docs.map(doc => ({ id: doc.id, date: doc.data().updatedAt?.seconds * 1000 }));
+                        setAllWorkspaces(wss);
+                        setLoading(false);
+                    }).catch(e => {
+                        console.error("Admin fetch failed", e);
+                        setErrorMsg("無法讀取列表，請確認 Firebase 規則或網路連線。");
+                        setLoading(false);
+                    });
+                }
+            }, [isAuthenticated, isOpen]);
+
+            const handleLogin = () => {
+                if (password === 'admin888') setIsAuthenticated(true);
+                else alert('密碼錯誤');
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
+                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 h-[500px] flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold flex items-center gap-2"><ShieldCheck/> 管理員後台</h2>
+                            <button onClick={onClose}><X size={20} className="text-gray-400"/></button>
+                        </div>
+                        {!isAuthenticated ? (
+                            <div className="flex-1 flex flex-col justify-center gap-4">
+                                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="請輸入管理密碼 (預設 admin888)" className="w-full px-3 py-2 border rounded-lg" onKeyDown={e=>e.key==='Enter'&&handleLogin()}/>
+                                <button onClick={handleLogin} className="w-full bg-gray-800 text-white py-2 rounded-lg">登入</button>
+                            </div>
+                        ) : (
+                            <div className="flex-1 overflow-hidden flex flex-col">
+                                <div className="flex justify-between items-center mb-2">
+                                    <p className="text-sm text-gray-500">已追蹤的空間列表 ({allWorkspaces.length})</p>
+                                    <button onClick={() => setIsAuthenticated(false)} className="text-xs text-gray-400 underline">登出</button>
+                                </div>
+                                {errorMsg && <div className="text-red-500 text-xs mb-2">{errorMsg}</div>}
+                                {loading ? <div className="flex justify-center p-4">載入中...</div> : (
+                                    allWorkspaces.length === 0 ? <p className="text-center text-gray-400 mt-10">目前沒有活躍的空間紀錄<br/><span className="text-xs">只要有人進入空間，就會自動出現在這裡</span></p> :
+                                    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                                        {allWorkspaces.map(ws => (
+                                            <div key={ws.id} className="flex justify-between items-center p-3 bg-gray-50 rounded border hover:bg-blue-50">
+                                                <div className="flex flex-col">
+                                                    <span className="font-mono text-sm font-bold">{ws.id}</span>
+                                                    <span className="text-xs text-gray-400">上次活動: {ws.date ? new Date(ws.date).toLocaleDateString() : '未知'}</span>
+                                                </div>
+                                                <button onClick={() => { onJoinSpace(ws.id); onClose(); }} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700">進入</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const SettingsMenu = ({ isOpen, onClose, onMigrateClick, onDeleteSpaceClick, onLogoutClick, onBgClick, onAdminClick }) => {
             const menuRef = useRef(null);
             useEffect(() => {
                 const handleClickOutside = (event) => { if (menuRef.current && !menuRef.current.contains(event.target)) onClose(); };
@@ -231,6 +369,7 @@
                     <button onClick={() => { onMigrateClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"><ArrowRightLeft size={16} /> 資料搬家</button>
                     <button onClick={() => { onBgClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><Palette size={16} /> 設定背景</button>
                     <button onClick={() => { onLogoutClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><LogOut size={16} /> 切換空間</button>
+                    <button onClick={() => { onAdminClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><ShieldCheck size={16} /> 管理員登入</button>
                     <button onClick={() => { onDeleteSpaceClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50"><FileWarning size={16} /> 刪除此空間</button>
                 </div>
             );
@@ -415,13 +554,13 @@
             const [isMigrating, setIsMigrating] = useState(false);
             const [showSettings, setShowSettings] = useState(false);
             const [showBgModal, setShowBgModal] = useState(false);
+            const [showAdmin, setShowAdmin] = useState(false);
 
             useEffect(() => { localStorage.setItem('pref_filterType', filterType); }, [filterType]);
             useEffect(() => { localStorage.setItem('pref_sortType', sortType); }, [sortType]);
             useEffect(() => { localStorage.setItem('pref_tagFilter', currentTagFilter); }, [currentTagFilter]);
             useEffect(() => { localStorage.setItem('pref_expiryThreshold', expiryThreshold); }, [expiryThreshold]);
 
-            // Load Background
             useEffect(() => {
                 const bgUrl = localStorage.getItem('pref_bgImage');
                 const bgLayer = document.getElementById('bg-layer');
@@ -430,7 +569,10 @@
 
             useEffect(() => {
                 const initAuth = async () => {
-                    if (!auth) return;
+                    if (!auth) {
+                        if (!firebaseConfig.apiKey.includes("請在此填入")) setAuthError("設定檔載入失敗，請檢查 API Key");
+                        return;
+                    }
                     try { await signInAnonymously(auth); } catch (e) { setAuthError(e.message); }
                 };
                 initAuth();
@@ -441,6 +583,16 @@
                     return () => unsubscribe();
                 } else { setLoading(false); }
             }, []);
+
+            // Auto-track workspace presence
+            useEffect(() => {
+                if (user && isJoined && workspaceId && db) {
+                    setDoc(doc(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION, workspaceId), {
+                        id: workspaceId,
+                        updatedAt: serverTimestamp()
+                    }, { merge: true }).catch(err => console.log("Tracking failed", err));
+                }
+            }, [user, isJoined, workspaceId]);
 
             // Data Sync (Tasks) 
             useEffect(() => {
@@ -633,6 +785,7 @@
                         if (count >= 400) { chunks.push(batch); batch = writeBatch(db); count = 0; }
                     });
                     batch.delete(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID));
+                    batch.delete(doc(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION, workspaceId));
                     if (count > 0 || true) chunks.push(batch);
 
                     await Promise.all(chunks.map(b => b.commit()));
@@ -663,7 +816,14 @@
                 } catch (e) { alert("搬移失敗：" + e.message); } finally { setIsMigrating(false); }
             };
 
-            if (!auth && !firebaseConfig.apiKey) return <div className="min-h-screen flex items-center justify-center"><p>尚未設定 Config</p></div>;
+            if (!auth && !firebaseConfig.apiKey) {
+                return <div className="min-h-screen flex items-center justify-center p-4">
+                    <div className="bg-red-50 text-red-600 p-6 rounded-lg text-center border border-red-100 shadow-sm">
+                        <h2 className="font-bold text-xl mb-2">尚未設定 Firebase</h2>
+                        <p className="text-sm">請使用文字編輯器打開 index.html<br/>找到 <code>const firebaseConfig = ...</code><br/>填入您的 API Key 設定。</p>
+                    </div>
+                </div>;
+            }
             if (!isJoined) return <LoginScreen onJoin={handleJoin} authError={authError} />;
 
             return (
@@ -680,7 +840,7 @@
                                     </div>
                                 </div>
                                 <button onClick={() => setShowSettings(!showSettings)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"><Settings size={20} /></button>
-                                <SettingsMenu isOpen={showSettings} onClose={() => setShowSettings(false)} onMigrateClick={() => setShowMigration(true)} onDeleteSpaceClick={handleDeleteSpace} onLogoutClick={handleLogout} onAdminClick={() => {}} onBgClick={() => setShowBgModal(true)} />
+                                <SettingsMenu isOpen={showSettings} onClose={() => setShowSettings(false)} onMigrateClick={() => setShowMigration(true)} onDeleteSpaceClick={handleDeleteSpace} onLogoutClick={handleLogout} onAdminClick={() => setShowAdmin(true)} onBgClick={() => setShowBgModal(true)} />
                             </div>
                             
                             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
@@ -804,6 +964,7 @@
                     
                     {showMigration && <MigrationModal isOpen={showMigration} onClose={() => setShowMigration(false)} currentSpaceId={workspaceId} onMigrate={handleMigrate}/>}
                     {showBgModal && <BackgroundModal isOpen={showBgModal} onClose={() => setShowBgModal(false)} />}
+                    {showAdmin && <AdminModal isOpen={showAdmin} onClose={() => setShowAdmin(false)} onJoinSpace={handleJoin} />}
                     {isMigrating && <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center"><div className="bg-white p-6 rounded-xl flex flex-col items-center gap-4"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p className="font-bold text-gray-700">處理中...</p></div></div>}
                 </div>
             );
