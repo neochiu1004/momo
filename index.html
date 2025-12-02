@@ -44,12 +44,12 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useMemo } from 'react';
+        import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
         import { getFirestore, collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, serverTimestamp, getDocs, writeBatch } from 'firebase/firestore';
-        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder, AlertCircle } from 'lucide-react';
+        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder, AlertCircle, Settings, LogOut, FileWarning, Image as ImageIcon, Link as LinkIcon, ShieldCheck } from 'lucide-react';
 
         // 外部設定檔讀取
         const externalConfig = window.MY_FIREBASE_CONFIG || {};
@@ -77,7 +77,38 @@
         }
 
         const appId = 'my-ticket-app';
-        const TAGS_DOC_ID = '__tags__'; // 儲存標籤列表的特殊文件 ID
+        const TAGS_DOC_ID = '__tags__'; 
+        const WORKSPACES_COLLECTION = 'workspaces'; // 管理員用來追蹤所有空間的集合
+
+        // Helper: Image Compression
+        const compressImage = (file) => {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const MAX_WIDTH = 800; // 限制最大寬度
+                        const MAX_HEIGHT = 800;
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+                        } else {
+                            if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
+                        }
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.7)); // 壓縮品質 0.7
+                    };
+                };
+            });
+        };
 
         // Components: QRCode & Barcode
         const QRCodeImage = ({ text, size = 150 }) => {
@@ -132,22 +163,15 @@
             return `${date.getFullYear()}/${(date.getMonth()+1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}`;
         };
 
-        // Check if date is within N days
         const checkIsExpiringSoon = (expiryStr, thresholdDays) => {
             if (!expiryStr) return false;
-            // Normalize date string (replace / with -)
             const normalizedDate = expiryStr.replace(/\//g, '-');
             const expiryDate = new Date(normalizedDate);
-            if (isNaN(expiryDate.getTime())) return false; // Invalid date
-
+            if (isNaN(expiryDate.getTime())) return false; 
             const today = new Date();
-            today.setHours(0, 0, 0, 0); // Start of today
-            
+            today.setHours(0, 0, 0, 0); 
             const diffTime = expiryDate - today;
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
-            // Returns true if date is in the future/today AND within threshold
-            // Also returns true if date is in the past (expired)
             return diffDays <= thresholdDays;
         };
 
@@ -176,27 +200,63 @@
             );
         };
 
-        const TaskItem = ({ task, onToggle, onDelete, onRestore, onPermanentDelete, onUpdateNote, onUpdateText, onUpdateTicket, isSelectionMode, isSelected, onSelect, expiryThreshold }) => {
+        const TaskItem = ({ task, onToggle, onDelete, onRestore, onPermanentDelete, onUpdateNote, onUpdateTask, isSelectionMode, isSelected, onSelect, expiryThreshold }) => {
             const [showCodes, setShowCodes] = useState(false);
             const isCompleted = task.completed;
             const isDeleted = task.isDeleted;
             const textClass = (isCompleted || isDeleted) ? 'text-gray-400 line-through' : 'text-gray-800';
             const completedDate = task.completedAt ? formatTimestamp(task.completedAt) : '';
+            
             const [isEditingNote, setIsEditingNote] = useState(false);
             const [noteDraft, setNoteDraft] = useState(task.note || '');
+            
             const [isEditingContent, setIsEditingContent] = useState(false);
             const [editName, setEditName] = useState(task.productName || task.text || '');
             const [editSerial, setEditSerial] = useState(task.serial || '');
             const [editExpiry, setEditExpiry] = useState(task.expiry || '');
+            const [editUrl, setEditUrl] = useState(task.url || '');
+            const [editImage, setEditImage] = useState(task.imageBase64 || '');
 
             useEffect(() => { setNoteDraft(task.note || '') }, [task.note]);
-            useEffect(() => { setEditName(task.productName || task.text || ''); setEditSerial(task.serial || ''); setEditExpiry(task.expiry || ''); }, [task]);
+            useEffect(() => { 
+                setEditName(task.productName || task.text || '');
+                setEditSerial(task.serial || '');
+                setEditExpiry(task.expiry || '');
+                setEditUrl(task.url || '');
+                setEditImage(task.imageBase64 || '');
+            }, [task]);
 
             const handleSaveNote = () => { onUpdateNote(task.id, noteDraft); setIsEditingNote(false); };
+            
             const handleSaveContent = () => {
-                if (task.isTicket) { onUpdateTicket(task.id, editName, editSerial, editExpiry); } 
-                else { onUpdateText(task.id, editName); }
+                onUpdateTask(task.id, {
+                    productName: task.isTicket ? editName : null,
+                    text: !task.isTicket ? editName : null,
+                    serial: editSerial,
+                    expiry: editExpiry,
+                    url: editUrl,
+                    imageBase64: editImage
+                });
                 setIsEditingContent(false);
+            };
+
+            const handleImageUpload = async (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    const compressed = await compressImage(e.target.files[0]);
+                    setEditImage(compressed);
+                }
+            };
+
+            const handlePaste = async (e) => {
+                const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                for (let index in items) {
+                    const item = items[index];
+                    if (item.kind === 'file' && item.type.includes('image/')) {
+                        const blob = item.getAsFile();
+                        const compressed = await compressImage(blob);
+                        setEditImage(compressed);
+                    }
+                }
             };
 
             const isExpiring = !isCompleted && !isDeleted && task.expiry && checkIsExpiringSoon(task.expiry, expiryThreshold);
@@ -219,18 +279,30 @@
             else if (isCompleted) containerStyle += 'bg-gray-50/50 border-gray-200';
             else if (isExpiring) containerStyle += 'bg-white border-red-300 ring-1 ring-red-300';
             else containerStyle += 'bg-white border-gray-100';
-            
             if (isSelected) containerStyle += ' ring-2 ring-blue-400 border-blue-400';
 
             if (isEditingContent) {
                 return (
-                    <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-3 space-y-3">
+                    <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-3 space-y-3" onPaste={handlePaste}>
                         {task.isTicket ? (
                             <>
                                 <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full border-b p-1 font-bold" placeholder="品名"/>
                                 <div className="flex gap-2"><input type="text" value={editSerial} onChange={(e) => setEditSerial(e.target.value)} className="flex-1 bg-gray-50 p-2 rounded text-sm" placeholder="序號"/><input type="text" value={editExpiry} onChange={(e) => setEditExpiry(e.target.value)} className="w-1/3 bg-gray-50 p-2 rounded text-sm" placeholder="期限"/></div>
                             </>
                         ) : (<textarea value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full border p-2 rounded" />)}
+                        
+                        <input type="text" value={editUrl} onChange={(e) => setEditUrl(e.target.value)} placeholder="相關連結 (URL)" className="w-full bg-gray-50 p-2 rounded text-sm text-blue-600" />
+                        
+                        <div className="flex gap-2 items-center">
+                            <label className="cursor-pointer bg-gray-100 px-3 py-1.5 rounded text-xs hover:bg-gray-200 flex items-center gap-1">
+                                <ImageIcon size={14}/> {editImage ? '更換圖片' : '上傳圖片'}
+                                <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                            </label>
+                            {editImage && <button onClick={() => setEditImage('')} className="text-red-500 text-xs hover:underline">移除</button>}
+                            <span className="text-xs text-gray-400 ml-auto">也可直接 Ctrl+V 貼上圖片</span>
+                        </div>
+                        {editImage && <img src={editImage} alt="Preview" className="max-h-32 rounded border object-contain" />}
+
                         <div className="flex justify-end gap-2"><button onClick={() => setIsEditingContent(false)} className="text-sm text-gray-500">取消</button><button onClick={handleSaveContent} className="text-sm bg-blue-600 text-white px-3 py-1 rounded">儲存</button></div>
                     </div>
                 );
@@ -238,12 +310,7 @@
 
             return (
                 <div className={containerStyle}>
-                    {/* Expiring Badge */}
-                    {isExpiring && (
-                        <div className="absolute top-0 right-0 bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-bl-lg rounded-tr-lg font-bold flex items-center gap-1">
-                            <AlertCircle size={10} /> 即將到期/已過期
-                        </div>
-                    )}
+                    {isExpiring && <div className="absolute top-0 right-0 bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-bl-lg rounded-tr-lg font-bold flex items-center gap-1"><AlertCircle size={10} /> 即將到期</div>}
 
                     <div className="flex items-start gap-3">
                         {isSelectionMode ? (
@@ -256,15 +323,26 @@
                                 <div><div className="flex justify-between items-start flex-wrap gap-2"><h3 className={`font-bold text-lg leading-tight mb-1 ${textClass}`}>{task.productName}</h3>{task.expiry && <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${isCompleted || isDeleted ? 'bg-gray-200 text-gray-500' : (isExpiring ? 'bg-red-500 text-white animate-pulse' : 'bg-green-100 text-green-700')}`}>{task.expiry} 到期</span>}</div><div className={`text-sm font-mono inline-block px-2 py-0.5 rounded mt-1 border ${isCompleted || isDeleted ? 'bg-gray-100 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>{task.serial}</div></div>
                             ) : (<div className={`break-words whitespace-pre-wrap ${textClass}`}>{task.text}</div>)}
                             
-                            {/* 顯示標籤 */}
-                            {task.tag && task.tag !== 'default' && (
-                                <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                    <Tag size={10} /> {task.tag}
-                                </span>
+                            {task.tag && task.tag !== 'default' && <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100"><Tag size={10} /> {task.tag}</span>}
+                            
+                            {task.imageBase64 && (
+                                <div className="mt-2">
+                                    <img src={task.imageBase64} alt="Product" className="max-h-32 rounded-lg border border-gray-100 object-contain cursor-pointer" onClick={() => {
+                                        // Simple modal to view image full size
+                                        const w = window.open("");
+                                        w.document.write(`<img src="${task.imageBase64}" style="max-width:100%"/>`);
+                                    }}/>
+                                </div>
+                            )}
+
+                            {task.url && (
+                                <a href={task.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline mt-1 bg-blue-50 px-2 py-0.5 rounded">
+                                    <LinkIcon size={12}/> 開啟連結
+                                </a>
                             )}
 
                             <NoteSection />
-                            {task.isTicket && <div className="mt-3 flex gap-2 items-center flex-wrap"><button onClick={() => setShowCodes(!showCodes)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100"><ScanBarcode size={16} /> {showCodes ? '隱藏條碼' : '顯示條碼'}</button></div>}
+                            {task.isTicket && task.serial && <div className="mt-3 flex gap-2 items-center flex-wrap"><button onClick={() => setShowCodes(!showCodes)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100"><ScanBarcode size={16} /> {showCodes ? '隱藏條碼' : '顯示條碼'}</button></div>}
                         </div>
                         <div className="flex flex-col gap-1 items-center">
                             {isDeleted ? (
@@ -294,15 +372,102 @@
             );
         };
 
+        // --- Admin Modal ---
+        const AdminModal = ({ isOpen, onClose, onJoinSpace }) => {
+            const [password, setPassword] = useState('');
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [allWorkspaces, setAllWorkspaces] = useState([]);
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                if (isAuthenticated) {
+                    setLoading(true);
+                    // Fetch all workspaces from tracking collection
+                    const q = query(collection(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION), orderBy('updatedAt', 'desc'));
+                    getDocs(q).then(snapshot => {
+                        setAllWorkspaces(snapshot.docs.map(doc => doc.id));
+                        setLoading(false);
+                    }).catch(e => {
+                        console.error("Admin fetch failed", e);
+                        setLoading(false);
+                    });
+                }
+            }, [isAuthenticated]);
+
+            const handleLogin = () => {
+                if (password === 'admin888') { // Simple hardcoded password
+                    setIsAuthenticated(true);
+                } else {
+                    alert('密碼錯誤');
+                }
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
+                    <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 h-[500px] flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold flex items-center gap-2"><ShieldCheck/> 管理員後台</h2>
+                            <button onClick={onClose}><X size={20} className="text-gray-400"/></button>
+                        </div>
+                        
+                        {!isAuthenticated ? (
+                            <div className="flex-1 flex flex-col justify-center gap-4">
+                                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="請輸入管理密碼" className="w-full px-3 py-2 border rounded-lg" onKeyDown={e=>e.key==='Enter'&&handleLogin()}/>
+                                <button onClick={handleLogin} className="w-full bg-gray-800 text-white py-2 rounded-lg">登入</button>
+                            </div>
+                        ) : (
+                            <div className="flex-1 overflow-hidden flex flex-col">
+                                <p className="text-sm text-gray-500 mb-2">已追蹤的空間列表 ({allWorkspaces.length})</p>
+                                {loading ? <div className="flex justify-center p-4">載入中...</div> : (
+                                    <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                                        {allWorkspaces.map(wsId => (
+                                            <div key={wsId} className="flex justify-between items-center p-3 bg-gray-50 rounded border hover:bg-blue-50">
+                                                <span className="font-mono text-sm">{wsId}</span>
+                                                <button onClick={() => { onJoinSpace(wsId); onClose(); }} className="text-xs bg-blue-600 text-white px-2 py-1 rounded">進入</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const SettingsMenu = ({ isOpen, onClose, onMigrateClick, onDeleteSpaceClick, onLogoutClick, onAdminClick }) => {
+            const menuRef = useRef(null);
+            useEffect(() => {
+                const handleClickOutside = (event) => { if (menuRef.current && !menuRef.current.contains(event.target)) onClose(); };
+                if (isOpen) document.addEventListener('mousedown', handleClickOutside);
+                return () => document.removeEventListener('mousedown', handleClickOutside);
+            }, [isOpen, onClose]);
+            if (!isOpen) return null;
+            return (
+                <div ref={menuRef} className="absolute right-0 top-12 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-1 z-20 animate-in fade-in zoom-in duration-200 origin-top-right">
+                    <button onClick={() => { onMigrateClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"><ArrowRightLeft size={16} /> 資料搬家</button>
+                    <button onClick={() => { onLogoutClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><LogOut size={16} /> 切換空間</button>
+                    <button onClick={() => { onAdminClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-50"><ShieldCheck size={16} /> 管理員登入</button>
+                    <button onClick={() => { onDeleteSpaceClick(); onClose(); }} className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50"><FileWarning size={16} /> 刪除此空間</button>
+                </div>
+            );
+        };
+
         const App = () => {
             const [user, setUser] = useState(null);
             const [workspaceId, setWorkspaceId] = useState(() => localStorage.getItem('ticket_workspace_id') || '');
             const [tasks, setTasks] = useState([]);
+            // Input States
             const [inputMode, setInputMode] = useState('paste'); 
             const [pasteVal, setPasteVal] = useState('');
             const [manualName, setManualName] = useState('');
             const [manualSerial, setManualSerial] = useState('');
             const [manualExpiry, setManualExpiry] = useState('');
+            const [manualUrl, setManualUrl] = useState('');
+            const [manualImage, setManualImage] = useState('');
+
             const [isJoined, setIsJoined] = useState(false);
             const [loading, setLoading] = useState(true);
             const [authError, setAuthError] = useState('');
@@ -321,6 +486,8 @@
             const [selectedTasks, setSelectedTasks] = useState(new Set());
             const [showMigration, setShowMigration] = useState(false);
             const [isMigrating, setIsMigrating] = useState(false);
+            const [showSettings, setShowSettings] = useState(false);
+            const [showAdmin, setShowAdmin] = useState(false);
 
             // Save Prefs
             useEffect(() => { localStorage.setItem('pref_filterType', filterType); }, [filterType]);
@@ -374,7 +541,6 @@
                 return () => unsubscribeTags();
             }, [user, workspaceId]);
 
-            // --- Logic: Processed Tasks (Filters & Search) ---
             const processedTasks = useMemo(() => {
                 let result = [...tasks];
                 
@@ -399,7 +565,6 @@
                         const inName = (t.productName || '').toLowerCase().includes(q);
                         const inSerial = (t.serial || '').toLowerCase().includes(q);
                         const inNote = (t.note || '').toLowerCase().includes(q);
-                        // 票券只搜尋品名/序號/備註 (排除原始全文)，一般任務搜尋全文
                         const inText = !t.isTicket && (t.text || '').toLowerCase().includes(q);
                         return inName || inSerial || inNote || inText;
                     });
@@ -411,7 +576,18 @@
                 return result;
             }, [tasks, viewStatus, filterType, sortType, currentTagFilter, searchQuery, expiryThreshold]);
 
-            const handleJoin = (id) => { setWorkspaceId(id); localStorage.setItem('ticket_workspace_id', id); setIsJoined(true); };
+            const handleJoin = (id) => { 
+                setWorkspaceId(id); 
+                localStorage.setItem('ticket_workspace_id', id); 
+                setIsJoined(true);
+                // Track this workspace ID for admin
+                if (db) {
+                    setDoc(doc(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION, id), {
+                        id: id,
+                        updatedAt: serverTimestamp()
+                    }, { merge: true }).catch(e => console.error("Track WS error", e));
+                }
+            };
 
             const handleAddTask = async () => {
                 if (!user) return;
@@ -423,28 +599,48 @@
                     const parsed = parseTicketInfo(pasteVal);
                     newTask = { 
                         text: pasteVal, isTicket: parsed.isTicket, serial: parsed.serial, productName: parsed.productName, expiry: parsed.expiry, 
-                        completed: false, isDeleted: false, createdAt: serverTimestamp(), note: '', tag: currentTagToSave
+                        completed: false, isDeleted: false, createdAt: serverTimestamp(), note: '', tag: currentTagToSave,
+                        url: '', imageBase64: ''
                     };
                 } else {
                     if (!manualName.trim()) return;
                     const fmtExpiry = manualExpiry ? manualExpiry.replace(/-/g, '/') : '';
                     newTask = {
                         text: manualName, isTicket: !!manualSerial.trim(), serial: manualSerial.trim(), productName: manualName, expiry: fmtExpiry, 
-                        completed: false, isDeleted: false, createdAt: serverTimestamp(), note: '', tag: currentTagToSave
+                        completed: false, isDeleted: false, createdAt: serverTimestamp(), note: '', tag: currentTagToSave,
+                        url: manualUrl, imageBase64: manualImage
                     };
                 }
 
                 try {
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', workspaceId), newTask);
-                    setPasteVal(''); setManualName(''); setManualSerial(''); setManualExpiry('');
+                    setPasteVal(''); setManualName(''); setManualSerial(''); setManualExpiry(''); setManualUrl(''); setManualImage('');
                     if (viewStatus !== 'active') setViewStatus('active');
                 } catch (e) { alert(`新增失敗：${e.message}`); }
             };
 
+            // Image Handler for Manual Input
+            const handleManualImageUpload = async (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    const compressed = await compressImage(e.target.files[0]);
+                    setManualImage(compressed);
+                }
+            };
+            const handleManualPaste = async (e) => {
+                const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                for (let index in items) {
+                    const item = items[index];
+                    if (item.kind === 'file' && item.type.includes('image/')) {
+                        const blob = item.getAsFile();
+                        const compressed = await compressImage(blob);
+                        setManualImage(compressed);
+                    }
+                }
+            };
+
             const handleToggleComplete = async (task) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { completed: !task.completed, completedAt: !task.completed ? serverTimestamp() : null }); };
             const handleUpdateNote = async (id, newNote) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { note: newNote }); };
-            const handleUpdateText = async (id, newText) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { text: newText, productName: newText }); };
-            const handleUpdateTicket = async (id, name, serial, expiry) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { productName: name, serial: serial, expiry: expiry }); };
+            const handleUpdateTask = async (id, data) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), data); };
             const handleDelete = async (id) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { isDeleted: true, deletedAt: serverTimestamp() }); };
             const handleRestore = async (task) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { isDeleted: false, completed: false }); };
             const handlePermanentDelete = async (id) => { if (!user) return; if(confirm("確定永久刪除？")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id)); };
@@ -474,7 +670,6 @@
                 await batch.commit();
                 setIsSelectionMode(false); setSelectedTasks(new Set());
                 
-                // Add tag if not exists
                 if (targetTag !== 'default' && !tags.includes(targetTag)) {
                     const updatedTags = [...tags, targetTag];
                     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID), { list: updatedTags }, { merge: true });
@@ -498,6 +693,55 @@
                 const batch = writeBatch(db);
                 trashItems.forEach(t => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id)));
                 await batch.commit();
+            };
+
+            const handleDeleteSpace = async () => {
+                if (!user) return;
+                const confirm1 = confirm(`【危險動作】\n\n您確定要刪除整個空間「${workspaceId}」嗎？\n\n這將會：\n1. 永久刪除所有票券與待辦事項\n2. 永久刪除所有標籤設定\n\n此動作無法復原！`);
+                if (!confirm1) return;
+
+                const confirm2 = prompt(`請輸入空間代碼「${workspaceId}」以確認刪除：`);
+                if (confirm2 !== workspaceId) {
+                    if (confirm2 !== null) alert("輸入錯誤，取消刪除。");
+                    return;
+                }
+
+                setIsMigrating(true);
+                try {
+                    const ref = collection(db, 'artifacts', appId, 'public', 'data', workspaceId);
+                    const snapshot = await getDocs(ref);
+                    
+                    if (snapshot.empty) {
+                        alert("空間已經是空的了。");
+                        handleLogout();
+                        return;
+                    }
+
+                    const chunks = [];
+                    let batch = writeBatch(db);
+                    let count = 0;
+                    snapshot.docs.forEach((doc) => {
+                        batch.delete(doc.ref);
+                        count++;
+                        if (count >= 400) { chunks.push(batch); batch = writeBatch(db); count = 0; }
+                    });
+                    // Also delete tag doc
+                    batch.delete(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID));
+                    // Also delete workspace tracking doc
+                    batch.delete(doc(db, 'artifacts', appId, 'public', WORKSPACES_COLLECTION, workspaceId));
+
+                    if (count > 0) chunks.push(batch);
+
+                    await Promise.all(chunks.map(b => b.commit()));
+                    
+                    alert("空間已刪除。");
+                    handleLogout();
+                } catch (e) {
+                    console.error("Delete space failed", e);
+                    alert("刪除失敗：" + e.message);
+                } finally {
+                    setIsMigrating(false);
+                }
             };
 
             const handleMigrate = async (targetId) => {
@@ -530,7 +774,7 @@
                     {/* Header */}
                     <div className="bg-white sticky top-0 z-10 shadow-sm border-b border-gray-100">
                         <div className="max-w-3xl mx-auto px-4 py-3">
-                            <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center justify-between mb-3 relative">
                                 <div className="flex items-center gap-2">
                                     <div className="bg-blue-600 text-white p-1.5 rounded-lg"><Calendar size={20} /></div>
                                     <div>
@@ -538,13 +782,10 @@
                                         <p className="text-xs text-gray-400 mt-0.5 font-mono">ID: {workspaceId}</p>
                                     </div>
                                 </div>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setShowMigration(true)} className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 flex items-center gap-1"><ArrowRightLeft size={14} /> 搬家</button>
-                                    <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-500 px-2 py-1 rounded hover:bg-gray-50">切換</button>
-                                </div>
+                                <button onClick={() => setShowSettings(!showSettings)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"><Settings size={20} /></button>
+                                <SettingsMenu isOpen={showSettings} onClose={() => setShowSettings(false)} onMigrateClick={() => setShowMigration(true)} onDeleteSpaceClick={handleDeleteSpace} onLogoutClick={handleLogout} onAdminClick={() => setShowAdmin(true)} />
                             </div>
                             
-                            {/* Search & Tag Bar */}
                             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
                                 <div className="relative flex-1 min-w-[150px]">
                                     <Search size={16} className="absolute left-2 top-2 text-gray-400" />
@@ -562,24 +803,17 @@
                     </div>
 
                     <div className="max-w-3xl mx-auto px-4 py-4">
-                        {/* Expiry Settings */}
                         <div className="flex justify-end mb-2">
                             <div className="flex items-center gap-2 bg-gray-50 px-2 py-1 rounded-md text-xs text-gray-500">
                                 <Clock size={12} /> 到期提示: <span className="text-gray-400">小於</span>
-                                <input 
-                                    type="number" 
-                                    min="1"
-                                    value={expiryThreshold} 
-                                    onChange={(e) => setExpiryThreshold(Math.max(1, parseInt(e.target.value) || 0))}
-                                    className="bg-transparent outline-none font-bold text-gray-700 w-12 text-center border-b border-gray-300 focus:border-blue-500"
-                                />
+                                <input type="number" min="1" value={expiryThreshold} onChange={(e) => setExpiryThreshold(Math.max(1, parseInt(e.target.value) || 0))} className="bg-transparent outline-none font-bold text-gray-700 w-12 text-center border-b border-gray-300 focus:border-blue-500" />
                                 <span className="text-gray-400">天</span>
                             </div>
                         </div>
 
                         {/* Input Area */}
                         {viewStatus === 'active' && (
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-4 transition-all focus-within:ring-2 focus-within:ring-blue-100">
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-4 transition-all focus-within:ring-2 focus-within:ring-blue-100" onPaste={inputMode === 'manual' ? handleManualPaste : undefined}>
                                 <div className="flex justify-between mb-2">
                                     <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">新增項目到: {currentTagFilter === 'all' ? '未分類' : currentTagFilter}</span>
                                     <button onClick={() => setInputMode(inputMode === 'paste' ? 'manual' : 'paste')} className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded transition-colors">{inputMode === 'paste' ? <Pencil size={12}/> : <ClipboardPaste size={12}/>} {inputMode === 'paste' ? '手動' : '貼上'}</button>
@@ -590,13 +824,22 @@
                                     <div className="space-y-3">
                                         <div><input type="text" value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="輸入內容 (必填)" className="w-full border-b pb-1 outline-none" /></div>
                                         <div className="flex gap-2"><input type="text" value={manualSerial} onChange={(e) => setManualSerial(e.target.value)} placeholder="序號 (選填)" className="flex-1 bg-gray-50 p-2 rounded text-sm" /><input type="date" value={manualExpiry} onChange={(e) => setManualExpiry(e.target.value)} className="w-1/3 bg-gray-50 p-2 rounded text-sm" /></div>
+                                        <input type="text" value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} placeholder="網址 (選填)" className="w-full bg-gray-50 p-2 rounded text-sm text-blue-600" />
+                                        <div className="flex gap-2 items-center">
+                                            <label className="cursor-pointer bg-gray-100 px-3 py-1.5 rounded text-xs hover:bg-gray-200 flex items-center gap-1">
+                                                <ImageIcon size={14}/> {manualImage ? '更換圖片' : '上傳圖片'}
+                                                <input type="file" accept="image/*" className="hidden" onChange={handleManualImageUpload} />
+                                            </label>
+                                            {manualImage && <button onClick={() => setManualImage('')} className="text-red-500 text-xs hover:underline">移除</button>}
+                                            <span className="text-xs text-gray-400 ml-auto">也可 Ctrl+V 貼上</span>
+                                        </div>
+                                        {manualImage && <img src={manualImage} alt="Preview" className="max-h-32 rounded border object-contain" />}
                                     </div>
                                 )}
                                 <div className="flex justify-end mt-2"><button onClick={handleAddTask} disabled={inputMode === 'paste' ? !pasteVal.trim() : !manualName.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-1"><Plus size={16}/> 新增</button></div>
                             </div>
                         )}
 
-                        {/* View Tabs */}
                         <div className="flex gap-4 mb-4 border-b border-gray-200">
                             <button onClick={() => setViewStatus('active')} className={`pb-2 px-1 text-base font-medium flex items-center gap-2 border-b-2 ${viewStatus === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><ListTodo size={18} /> 待辦 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => !t.completed && !t.isDeleted).length}</span></button>
                             <button onClick={() => setViewStatus('completed')} className={`pb-2 px-1 text-base font-medium flex items-center gap-2 border-b-2 ${viewStatus === 'completed' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'}`}><CheckCircle2 size={18} /> 已完成 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => t.completed && !t.isDeleted).length}</span></button>
@@ -615,26 +858,12 @@
                                             {selectedTasks.size === processedTasks.length && processedTasks.length > 0 ? '取消全選' : '全選'}
                                         </button>
                                         <div className="h-6 w-px bg-gray-300 mx-1"></div>
-                                        {/* Batch Actions: Editable Dropdown for Tags */}
                                         {selectedTasks.size > 0 && (
                                             <div className="flex gap-2 animate-in fade-in zoom-in duration-200 items-center">
                                                 {viewStatus !== 'deleted' && (
                                                     <div className="relative">
-                                                        <input 
-                                                            list="tag-options"
-                                                            placeholder="移動/新增標籤..." 
-                                                            className="bg-indigo-50 text-indigo-700 text-sm px-2 py-1.5 rounded-md border-indigo-100 focus:ring-2 focus:ring-indigo-500 outline-none w-32"
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter' && e.target.value.trim()) {
-                                                                    handleBatchMoveTag(e.target.value.trim());
-                                                                    e.target.value = '';
-                                                                }
-                                                            }}
-                                                        />
-                                                        <datalist id="tag-options">
-                                                            <option value="default">未分類</option>
-                                                            {tags.map(t => <option key={t} value={t} />)}
-                                                        </datalist>
+                                                        <input list="tag-options" placeholder="移動/新增標籤..." className="bg-indigo-50 text-indigo-700 text-sm px-2 py-1.5 rounded-md border-indigo-100 focus:ring-2 focus:ring-indigo-500 outline-none w-32" onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value.trim()) { handleBatchMoveTag(e.target.value.trim()); e.target.value = ''; } }} />
+                                                        <datalist id="tag-options"><option value="default">未分類</option>{tags.map(t => <option key={t} value={t} />)}</datalist>
                                                     </div>
                                                 )}
                                                 <button onClick={handleBatchDelete} className="px-3 py-1.5 bg-red-100 text-red-700 rounded-md text-sm hover:bg-red-200 flex items-center gap-1"><Trash size={14}/> 刪除</button>
@@ -644,7 +873,6 @@
                                 )}
                             </div>
                             
-                            {/* Empty Trash Button */}
                             {viewStatus === 'deleted' && !isSelectionMode && tasks.some(t => t.isDeleted) && (
                                 <button onClick={handleEmptyTrash} className="ml-auto px-3 py-1.5 bg-red-600 text-white rounded-md text-sm hover:bg-red-700 flex items-center gap-1 shadow-sm">
                                     <Trash2 size={16}/> 清空垃圾桶
@@ -663,7 +891,6 @@
                             )}
                         </div>
 
-                        {/* List */}
                         {loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div> : (
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between px-1 mb-2">
@@ -673,7 +900,7 @@
                                     </h2>
                                 </div>
                                 {processedTasks.length === 0 ? <div className="text-center py-10 bg-white rounded-xl border border-dashed border-gray-300 text-gray-400">沒有符合的項目</div> : 
-                                    processedTasks.map(task => <TaskItem key={task.id} task={task} onToggle={handleToggleComplete} onDelete={handleDelete} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateText={handleUpdateText} onUpdateTicket={handleUpdateTicket} isSelectionMode={isSelectionMode} isSelected={selectedTasks.has(task.id)} onSelect={handleSelect} expiryThreshold={expiryThreshold} />)
+                                    processedTasks.map(task => <TaskItem key={task.id} task={task} onToggle={handleToggleComplete} onDelete={handleDelete} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateTask={handleUpdateTask} onUpdateTicket={handleUpdateTicket} isSelectionMode={isSelectionMode} isSelected={selectedTasks.has(task.id)} onSelect={handleSelect} expiryThreshold={expiryThreshold} />)
                                 }
                             </div>
                         )}
@@ -682,6 +909,7 @@
                     {viewStatus === 'active' && <div className="fixed bottom-6 right-6 md:hidden"><button onClick={() => document.querySelector('textarea')?.focus()} className="bg-blue-600 text-white p-4 rounded-full shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95"><Plus size={24} /></button></div>}
                     
                     {showMigration && <MigrationModal isOpen={showMigration} onClose={() => setShowMigration(false)} currentSpaceId={workspaceId} onMigrate={handleMigrate}/>}
+                    {showAdmin && <AdminModal isOpen={showAdmin} onClose={() => setShowAdmin(false)} onJoinSpace={handleJoin} />}
                     {isMigrating && <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center"><div className="bg-white p-6 rounded-xl flex flex-col items-center gap-4"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p className="font-bold text-gray-700">處理中...</p></div></div>}
                 </div>
             );
