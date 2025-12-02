@@ -43,7 +43,7 @@
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
         import { getFirestore, collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, serverTimestamp, getDocs, writeBatch } from 'firebase/firestore';
-        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder } from 'lucide-react';
+        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder, AlertCircle } from 'lucide-react';
 
         // 外部設定檔讀取
         const externalConfig = window.MY_FIREBASE_CONFIG || {};
@@ -126,6 +126,25 @@
             return `${date.getFullYear()}/${(date.getMonth()+1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}`;
         };
 
+        // Check if date is within N days
+        const checkIsExpiringSoon = (expiryStr, thresholdDays) => {
+            if (!expiryStr) return false;
+            // Normalize date string (replace / with -)
+            const normalizedDate = expiryStr.replace(/\//g, '-');
+            const expiryDate = new Date(normalizedDate);
+            if (isNaN(expiryDate.getTime())) return false; // Invalid date
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // Start of today
+            
+            const diffTime = expiryDate - today;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            // Returns true if date is in the future/today AND within threshold
+            // Also returns true if date is in the past (expired)
+            return diffDays <= thresholdDays;
+        };
+
         // Components
         const LoginScreen = ({ onJoin, authError }) => {
             const [code, setCode] = useState('');
@@ -151,7 +170,7 @@
             );
         };
 
-        const TaskItem = ({ task, onToggle, onDelete, onRestore, onPermanentDelete, onUpdateNote, onUpdateText, onUpdateTicket, isSelectionMode, isSelected, onSelect }) => {
+        const TaskItem = ({ task, onToggle, onDelete, onRestore, onPermanentDelete, onUpdateNote, onUpdateText, onUpdateTicket, isSelectionMode, isSelected, onSelect, expiryThreshold }) => {
             const [showCodes, setShowCodes] = useState(false);
             const isCompleted = task.completed;
             const isDeleted = task.isDeleted;
@@ -174,6 +193,8 @@
                 setIsEditingContent(false);
             };
 
+            const isExpiring = !isCompleted && !isDeleted && task.expiry && checkIsExpiringSoon(task.expiry, expiryThreshold);
+
             const NoteSection = () => (
                 <div className="w-full mt-2">
                     {isEditingNote ? (
@@ -190,7 +211,9 @@
             let containerStyle = `rounded-xl shadow-sm border p-4 mb-3 flex flex-col gap-2 hover:shadow-md transition-shadow group relative `;
             if (isDeleted) containerStyle += 'bg-red-50/50 border-red-100 opacity-80';
             else if (isCompleted) containerStyle += 'bg-gray-50/50 border-gray-200';
+            else if (isExpiring) containerStyle += 'bg-white border-red-300 ring-1 ring-red-300';
             else containerStyle += 'bg-white border-gray-100';
+            
             if (isSelected) containerStyle += ' ring-2 ring-blue-400 border-blue-400';
 
             if (isEditingContent) {
@@ -209,6 +232,13 @@
 
             return (
                 <div className={containerStyle}>
+                    {/* Expiring Badge */}
+                    {isExpiring && (
+                        <div className="absolute top-0 right-0 bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-bl-lg rounded-tr-lg font-bold flex items-center gap-1">
+                            <AlertCircle size={10} /> 即將到期/已過期
+                        </div>
+                    )}
+
                     <div className="flex items-start gap-3">
                         {isSelectionMode ? (
                             <div className="mt-1"><input type="checkbox" checked={isSelected} onChange={() => onSelect(task.id)} className="w-6 h-6 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
@@ -217,7 +247,7 @@
                         )}
                         <div className="flex-1 min-w-0">
                             {task.isTicket ? (
-                                <div><div className="flex justify-between items-start flex-wrap gap-2"><h3 className={`font-bold text-lg leading-tight mb-1 ${textClass}`}>{task.productName}</h3>{task.expiry && <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${isCompleted || isDeleted ? 'bg-gray-200 text-gray-500' : 'bg-green-100 text-green-700'}`}>{task.expiry} 到期</span>}</div><div className={`text-sm font-mono inline-block px-2 py-0.5 rounded mt-1 border ${isCompleted || isDeleted ? 'bg-gray-100 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>{task.serial}</div></div>
+                                <div><div className="flex justify-between items-start flex-wrap gap-2"><h3 className={`font-bold text-lg leading-tight mb-1 ${textClass}`}>{task.productName}</h3>{task.expiry && <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${isCompleted || isDeleted ? 'bg-gray-200 text-gray-500' : (isExpiring ? 'bg-red-500 text-white animate-pulse' : 'bg-green-100 text-green-700')}`}>{task.expiry} 到期</span>}</div><div className={`text-sm font-mono inline-block px-2 py-0.5 rounded mt-1 border ${isCompleted || isDeleted ? 'bg-gray-100 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>{task.serial}</div></div>
                             ) : (<div className={`break-words whitespace-pre-wrap ${textClass}`}>{task.text}</div>)}
                             
                             {/* 顯示標籤 */}
@@ -258,25 +288,15 @@
             );
         };
 
-        // --- Tag Manager Modal (Renaming + Adding) ---
         const TagManagerModal = ({ isOpen, onClose, tags, onAddTag, onDeleteTag, onRenameTag }) => {
             const [newTag, setNewTag] = useState('');
-            const [editingTag, setEditingTag] = useState(null); // The tag currently being edited
-            const [editValue, setEditValue] = useState(''); // The new name
+            const [editingTag, setEditingTag] = useState(null); 
+            const [editValue, setEditValue] = useState(''); 
 
             if (!isOpen) return null;
 
-            const startEdit = (tag) => {
-                setEditingTag(tag);
-                setEditValue(tag);
-            };
-
-            const saveEdit = () => {
-                if (editValue.trim() && editValue !== editingTag) {
-                    onRenameTag(editingTag, editValue.trim());
-                }
-                setEditingTag(null);
-            };
+            const startEdit = (tag) => { setEditingTag(tag); setEditValue(tag); };
+            const saveEdit = () => { if (editValue.trim() && editValue !== editingTag) { onRenameTag(editingTag, editValue.trim()); } setEditingTag(null); };
 
             return (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
@@ -331,9 +351,10 @@
             const [filterType, setFilterType] = useState(() => localStorage.getItem('pref_filterType') || 'all');
             const [sortType, setSortType] = useState(() => localStorage.getItem('pref_sortType') || 'newest');
             const [currentTagFilter, setCurrentTagFilter] = useState(() => localStorage.getItem('pref_tagFilter') || 'all');
+            const [expiryThreshold, setExpiryThreshold] = useState(() => parseInt(localStorage.getItem('pref_expiryThreshold') || '30'));
 
             // New Features State
-            const [tags, setTags] = useState([]); // List of custom tags strings
+            const [tags, setTags] = useState([]); 
             const [searchQuery, setSearchQuery] = useState('');
             const [isSelectionMode, setIsSelectionMode] = useState(false);
             const [selectedTasks, setSelectedTasks] = useState(new Set());
@@ -345,6 +366,7 @@
             useEffect(() => { localStorage.setItem('pref_filterType', filterType); }, [filterType]);
             useEffect(() => { localStorage.setItem('pref_sortType', sortType); }, [sortType]);
             useEffect(() => { localStorage.setItem('pref_tagFilter', currentTagFilter); }, [currentTagFilter]);
+            useEffect(() => { localStorage.setItem('pref_expiryThreshold', expiryThreshold); }, [expiryThreshold]);
 
             useEffect(() => {
                 const initAuth = async () => {
@@ -360,11 +382,10 @@
                 } else { setLoading(false); }
             }, []);
 
-            // Data Sync (Tasks) - Keep existing ordering logic for tasks
+            // Data Sync (Tasks) 
             useEffect(() => {
                 if (!user || !workspaceId || !db) { setLoading(false); return; }
                 setLoading(true);
-                // 讀取任務 (過濾掉 tags 檔案)
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', workspaceId), orderBy('createdAt', 'desc'));
                 const unsubscribe = onSnapshot(q, (snapshot) => {
                     const loadedTasks = [];
@@ -379,7 +400,7 @@
                 return () => unsubscribe();
             }, [user, workspaceId]);
 
-            // Data Sync (Tags) - Separate Listener
+            // Data Sync (Tags)
             useEffect(() => {
                 if (!user || !workspaceId || !db) return;
                 const tagDocRef = doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID);
@@ -387,7 +408,7 @@
                     if (docSnap.exists()) {
                         setTags(docSnap.data().list || []);
                     } else {
-                        setTags([]); // Initialize empty if doc doesn't exist
+                        setTags([]); 
                     }
                 }, (error) => { console.error("Fetch Tags error:", error); });
                 return () => unsubscribeTags();
@@ -397,16 +418,13 @@
             const processedTasks = useMemo(() => {
                 let result = [...tasks];
                 
-                // 1. Status Filter
                 if (viewStatus === 'active') result = result.filter(t => !t.completed && !t.isDeleted);
                 else if (viewStatus === 'completed') result = result.filter(t => t.completed && !t.isDeleted);
                 else if (viewStatus === 'deleted') result = result.filter(t => t.isDeleted);
 
-                // 2. Type Filter
                 if (filterType === 'ticket') result = result.filter(t => t.isTicket);
                 else if (filterType === 'normal') result = result.filter(t => !t.isTicket);
 
-                // 3. Tag Filter
                 if (currentTagFilter !== 'all') {
                     if (currentTagFilter === 'uncategorized') {
                         result = result.filter(t => !t.tag || t.tag === 'default');
@@ -415,7 +433,6 @@
                     }
                 }
 
-                // 4. Search Filter
                 if (searchQuery.trim()) {
                     const q = searchQuery.toLowerCase();
                     result = result.filter(t => 
@@ -426,7 +443,6 @@
                     );
                 }
 
-                // 5. Sort
                 if (sortType === 'expiring') result.sort((a, b) => { if (a.expiry && b.expiry) return new Date(a.expiry) - new Date(b.expiry); if (a.expiry) return -1; if (b.expiry) return 1; return 0; });
                 else if (sortType === 'oldest') result.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
                 else result.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
@@ -463,7 +479,6 @@
                 } catch (e) { alert(`新增失敗：${e.message}`); }
             };
 
-            // Basic Actions
             const handleToggleComplete = async (task) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { completed: !task.completed, completedAt: !task.completed ? serverTimestamp() : null }); };
             const handleUpdateNote = async (id, newNote) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { note: newNote }); };
             const handleUpdateText = async (id, newText) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { text: newText, productName: newText }); };
@@ -473,17 +488,17 @@
             const handlePermanentDelete = async (id) => { if (!user) return; if(confirm("確定永久刪除？")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id)); };
             const handleLogout = () => { localStorage.removeItem('ticket_workspace_id'); setWorkspaceId(''); setIsJoined(false); setTasks([]); };
 
-            // Tag Management
             const handleAddTag = async (newTag) => {
                 if (!user || tags.includes(newTag)) return;
                 const updatedTags = [...tags, newTag];
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID), { list: updatedTags }, { merge: true });
+                try {
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID), { list: updatedTags }, { merge: true });
+                } catch (e) { console.error("Add tag error:", e); alert("新增標籤失敗"); }
             };
             const handleDeleteTag = async (tagToDelete) => {
                 if (!user) return;
                 const updatedTags = tags.filter(t => t !== tagToDelete);
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID), { list: updatedTags }, { merge: true });
-                // Reset tasks with this tag to default
                 const tasksToUpdate = tasks.filter(t => t.tag === tagToDelete);
                 const batch = writeBatch(db);
                 tasksToUpdate.forEach(t => {
@@ -496,10 +511,8 @@
                 if (!user || !newTag.trim() || newTag === oldTag || tags.includes(newTag)) return;
                 const updatedTags = tags.map(t => t === oldTag ? newTag : t);
                 const batch = writeBatch(db);
-                // 1. Update tag list
                 const tagDocRef = doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID);
                 batch.set(tagDocRef, { list: updatedTags }, { merge: true });
-                // 2. Update all tasks
                 const tasksToUpdate = tasks.filter(t => t.tag === oldTag);
                 tasksToUpdate.forEach(t => {
                     batch.update(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id), { tag: newTag });
@@ -508,7 +521,6 @@
                 if (currentTagFilter === oldTag) setCurrentTagFilter(newTag);
             };
 
-            // Batch Operations
             const handleSelect = (id) => {
                 const newSet = new Set(selectedTasks);
                 if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
@@ -516,7 +528,7 @@
             };
             const handleSelectAll = () => {
                 if (selectedTasks.size === processedTasks.length && processedTasks.length > 0) {
-                    setSelectedTasks(new Set()); // Deselect all
+                    setSelectedTasks(new Set()); 
                 } else {
                     const newSet = new Set();
                     processedTasks.forEach(t => newSet.add(t.id));
@@ -548,7 +560,6 @@
                 const trashItems = tasks.filter(t => t.isDeleted);
                 if (trashItems.length === 0) return;
                 if (!confirm(`⚠️ 警告：確定清空垃圾桶中的 ${trashItems.length} 個項目嗎？此動作無法復原！`)) return;
-                
                 const batch = writeBatch(db);
                 trashItems.forEach(t => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id)));
                 await batch.commit();
@@ -618,6 +629,24 @@
                     </div>
 
                     <div className="max-w-3xl mx-auto px-4 py-4">
+                        {/* Expiry Settings */}
+                        <div className="flex justify-end mb-2">
+                            <div className="flex items-center gap-2 bg-gray-50 px-2 py-1 rounded-md text-xs text-gray-500">
+                                <Clock size={12} /> 到期提示: 
+                                <select 
+                                    value={expiryThreshold} 
+                                    onChange={(e) => setExpiryThreshold(parseInt(e.target.value))}
+                                    className="bg-transparent outline-none font-bold text-gray-700"
+                                >
+                                    <option value="7">7天</option>
+                                    <option value="14">14天</option>
+                                    <option value="30">30天</option>
+                                    <option value="60">60天</option>
+                                    <option value="90">90天</option>
+                                </select>
+                            </div>
+                        </div>
+
                         {/* Input Area */}
                         {viewStatus === 'active' && (
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-4 transition-all focus-within:ring-2 focus-within:ring-blue-100">
@@ -706,7 +735,7 @@
                                     </h2>
                                 </div>
                                 {processedTasks.length === 0 ? <div className="text-center py-10 bg-white rounded-xl border border-dashed border-gray-300 text-gray-400">沒有符合的項目</div> : 
-                                    processedTasks.map(task => <TaskItem key={task.id} task={task} onToggle={handleToggleComplete} onDelete={handleDelete} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateText={handleUpdateText} onUpdateTicket={handleUpdateTicket} isSelectionMode={isSelectionMode} isSelected={selectedTasks.has(task.id)} onSelect={handleSelect} />)
+                                    processedTasks.map(task => <TaskItem key={task.id} task={task} onToggle={handleToggleComplete} onDelete={handleDelete} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateText={handleUpdateText} onUpdateTicket={handleUpdateTicket} isSelectionMode={isSelectionMode} isSelected={selectedTasks.has(task.id)} onSelect={handleSelect} expiryThreshold={expiryThreshold} />)
                                 }
                             </div>
                         )}
