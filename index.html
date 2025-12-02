@@ -42,15 +42,13 @@
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-        import { getFirestore, collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp, getDocs, writeBatch } from 'firebase/firestore';
-        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw } from 'lucide-react';
+        import { getFirestore, collection, addDoc, deleteDoc, updateDoc, setDoc, doc, onSnapshot, query, orderBy, serverTimestamp, getDocs, writeBatch } from 'firebase/firestore';
+        import { Trash2, Calendar, QrCode, Check, Plus, LogIn, ExternalLink, Filter, ArrowUpDown, Tag, RotateCcw, CheckCircle2, ListTodo, Clock, Wifi, WifiOff, AlertTriangle, StickyNote, Save, X, ScanBarcode, Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, RefreshCcw, Search, FolderInput, FolderPlus, FolderX, Folder } from 'lucide-react';
 
-        // 外部設定檔讀取 (若無則使用空物件)
+        // 外部設定檔讀取
         const externalConfig = window.MY_FIREBASE_CONFIG || {};
 
-        // ==========================================
-        // ▼▼▼ Firebase 設定 ▼▼▼
-        // ==========================================
+        // Firebase 設定
         const firebaseConfig = externalConfig.apiKey ? externalConfig : {
             apiKey: "AIzaSyA1o7BjEcjZBEyjNKnVi5bknbkkJJSy0DI",
             authDomain: "task-71198.firebaseapp.com",
@@ -60,7 +58,6 @@
             appId: "1:192519078026:web:b283a50108f54bbd6d6d73",
             measurementId: "G-29ZTR7DCJL"
         };
-        // ==========================================
 
         let app, auth, db;
         try {
@@ -74,8 +71,9 @@
         }
 
         const appId = 'my-ticket-app';
+        const TAGS_DOC_ID = '__tags__'; // 儲存標籤列表的特殊文件 ID
 
-        // 二維碼 (QR Code)
+        // Components: QRCode & Barcode
         const QRCodeImage = ({ text, size = 150 }) => {
             const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
             return (
@@ -86,7 +84,6 @@
             );
         };
 
-        // 一維碼 (Barcode - Code 128)
         const BarcodeImage = ({ text }) => {
             const url = `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(text)}&scale=2&includetext&backgroundcolor=ffffff&padding=10`;
             return (
@@ -97,9 +94,9 @@
             );
         };
 
+        // Utils
         const parseTicketInfo = (text) => {
             const result = { isTicket: false, serial: '', productName: '', expiry: '', originalText: text };
-            
             const serialMatch = text.match(/(?:票券序號|序號)[:：]\s*([A-Za-z0-9]+)/);
             if (serialMatch) { result.isTicket = true; result.serial = serialMatch[1]; }
             
@@ -116,13 +113,10 @@
             if (nameMatch) { result.productName = nameMatch[0]; }
             else if (result.isTicket) {
                 const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-                const likelyName = lines.find(l => 
-                    l.includes('元') || l.includes('飲品') || l.includes('券') || l.includes('雞') || l.includes('堡') || l.includes('餐')
-                );
+                const likelyName = lines.find(l => l.includes('元') || l.includes('飲品') || l.includes('券') || l.includes('雞') || l.includes('堡') || l.includes('餐'));
                 result.productName = likelyName || (lines[serialMatch ? lines.findIndex(l => l.includes('序號')) + 1 : 0] || "未命名票券");
             }
             if (result.isTicket && !result.productName) result.productName = "未命名票券";
-            
             return result;
         };
 
@@ -132,6 +126,7 @@
             return `${date.getFullYear()}/${(date.getMonth()+1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}`;
         };
 
+        // Components
         const LoginScreen = ({ onJoin, authError }) => {
             const [code, setCode] = useState('');
             const handleSubmit = (e) => { e.preventDefault(); if (code.trim().length > 0) onJoin(code.trim()); };
@@ -143,17 +138,11 @@
                             <h1 className="text-2xl font-bold text-gray-800">票券小幫手</h1>
                             <p className="text-gray-500 mt-2">請輸入共用空間代碼以同步資料</p>
                         </div>
-                        {authError && (
-                            <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-lg text-left">
-                                <h3 className="flex items-center gap-2 text-red-700 font-bold text-sm mb-1"><AlertTriangle size={16}/> 連線發生錯誤</h3>
-                                <p className="text-xs text-red-600">{authError}</p>
-                            </div>
-                        )}
+                        {authError && <div className="mb-4 p-4 bg-red-50 border border-red-100 rounded-lg text-left text-xs text-red-600">{authError}</div>}
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">空間代碼 (Workspace ID)</label>
                                 <input type="text" required placeholder="例如: my-tickets-2025" className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" value={code} onChange={(e) => setCode(e.target.value)} />
-                                <p className="text-xs text-gray-400 mt-1">在任何裝置輸入相同代碼即可看見相同清單。</p>
                             </div>
                             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2">進入清單 <ExternalLink size={18} /></button>
                         </form>
@@ -168,7 +157,6 @@
             const isDeleted = task.isDeleted;
             const textClass = (isCompleted || isDeleted) ? 'text-gray-400 line-through' : 'text-gray-800';
             const completedDate = task.completedAt ? formatTimestamp(task.completedAt) : '';
-
             const [isEditingNote, setIsEditingNote] = useState(false);
             const [noteDraft, setNoteDraft] = useState(task.note || '');
             const [isEditingContent, setIsEditingContent] = useState(false);
@@ -177,11 +165,7 @@
             const [editExpiry, setEditExpiry] = useState(task.expiry || '');
 
             useEffect(() => { setNoteDraft(task.note || '') }, [task.note]);
-            useEffect(() => { 
-                setEditName(task.productName || task.text || '');
-                setEditSerial(task.serial || '');
-                setEditExpiry(task.expiry || '');
-            }, [task]);
+            useEffect(() => { setEditName(task.productName || task.text || ''); setEditSerial(task.serial || ''); setEditExpiry(task.expiry || ''); }, [task]);
 
             const handleSaveNote = () => { onUpdateNote(task.id, noteDraft); setIsEditingNote(false); };
             const handleSaveContent = () => {
@@ -195,51 +179,30 @@
                     {isEditingNote ? (
                         <div className="flex flex-col gap-2 bg-yellow-50 p-2 rounded-lg border border-yellow-200 animate-in">
                             <textarea value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="輸入備註..." className="w-full text-sm bg-transparent outline-none resize-none text-gray-700 min-h-[60px]" autoFocus />
-                            <div className="flex justify-end gap-2">
-                                <button onClick={() => setIsEditingNote(false)} className="text-gray-400 hover:text-gray-600 p-1"><X size={16}/></button>
-                                <button onClick={handleSaveNote} className="flex items-center gap-1 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 px-3 py-1 rounded-md text-xs font-bold transition-colors"><Save size={14}/> 儲存</button>
-                            </div>
+                            <div className="flex justify-end gap-2"><button onClick={() => setIsEditingNote(false)}><X size={16}/></button><button onClick={handleSaveNote}><Save size={14}/> 儲存</button></div>
                         </div>
                     ) : (
-                        task.note && (
-                            <div onClick={() => setIsEditingNote(true)} className="bg-yellow-50 p-2 rounded-lg border border-yellow-100 text-sm text-gray-600 cursor-pointer hover:bg-yellow-100 transition-colors flex items-start gap-2">
-                                <StickyNote size={14} className="mt-0.5 text-yellow-500 flex-shrink-0" />
-                                <span className="break-words whitespace-pre-wrap">{task.note}</span>
-                            </div>
-                        )
+                        task.note && <div onClick={() => setIsEditingNote(true)} className="bg-yellow-50 p-2 rounded-lg border border-yellow-100 text-sm text-gray-600 cursor-pointer flex items-start gap-2"><StickyNote size={14} className="mt-0.5 text-yellow-500 flex-shrink-0" /><span className="break-words whitespace-pre-wrap">{task.note}</span></div>
                     )}
                 </div>
             );
 
-            // Container Style
             let containerStyle = `rounded-xl shadow-sm border p-4 mb-3 flex flex-col gap-2 hover:shadow-md transition-shadow group relative `;
             if (isDeleted) containerStyle += 'bg-red-50/50 border-red-100 opacity-80';
             else if (isCompleted) containerStyle += 'bg-gray-50/50 border-gray-200';
             else containerStyle += 'bg-white border-gray-100';
-
             if (isSelected) containerStyle += ' ring-2 ring-blue-400 border-blue-400';
 
-            // Edit Views (Same as before)
             if (isEditingContent) {
                 return (
-                    <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-3">
-                        <div className="space-y-3">
-                            {task.isTicket ? (
-                                <>
-                                    <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="品名" className="w-full border-b border-gray-200 p-1 outline-none focus:border-blue-500 font-bold text-gray-800" />
-                                    <div className="flex gap-2">
-                                        <input type="text" value={editSerial} onChange={(e) => setEditSerial(e.target.value)} placeholder="序號" className="flex-1 bg-gray-50 p-2 rounded text-sm font-mono outline-none focus:ring-1 focus:ring-blue-200" />
-                                        <input type="text" value={editExpiry} onChange={(e) => setEditExpiry(e.target.value)} placeholder="期限 (YYYY/MM/DD)" className="w-1/3 bg-gray-50 p-2 rounded text-sm outline-none focus:ring-1 focus:ring-blue-200" />
-                                    </div>
-                                </>
-                            ) : (
-                                <textarea value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full text-base border border-blue-100 bg-blue-50/30 rounded p-2 outline-none focus:ring-2 focus:ring-blue-200 resize-none min-h-[80px]" autoFocus />
-                            )}
-                            <div className="flex justify-end gap-2 pt-2">
-                                <button onClick={() => setIsEditingContent(false)} className="text-gray-500 text-sm px-3 py-1 hover:bg-gray-100 rounded">取消</button>
-                                <button onClick={handleSaveContent} className="bg-blue-600 text-white text-sm px-4 py-1 rounded hover:bg-blue-700 font-medium">儲存</button>
-                            </div>
-                        </div>
+                    <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-3 space-y-3">
+                        {task.isTicket ? (
+                            <>
+                                <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full border-b p-1 font-bold" placeholder="品名"/>
+                                <div className="flex gap-2"><input type="text" value={editSerial} onChange={(e) => setEditSerial(e.target.value)} className="flex-1 bg-gray-50 p-2 rounded text-sm" placeholder="序號"/><input type="text" value={editExpiry} onChange={(e) => setEditExpiry(e.target.value)} className="w-1/3 bg-gray-50 p-2 rounded text-sm" placeholder="期限"/></div>
+                            </>
+                        ) : (<textarea value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full border p-2 rounded" />)}
+                        <div className="flex justify-end gap-2"><button onClick={() => setIsEditingContent(false)} className="text-sm text-gray-500">取消</button><button onClick={handleSaveContent} className="text-sm bg-blue-600 text-white px-3 py-1 rounded">儲存</button></div>
                     </div>
                 );
             }
@@ -247,104 +210,36 @@
             return (
                 <div className={containerStyle}>
                     <div className="flex items-start gap-3">
-                        {/* Selection Checkbox OR Status Icon */}
                         {isSelectionMode ? (
-                            <div className="mt-1">
-                                <input 
-                                    type="checkbox" 
-                                    checked={isSelected}
-                                    onChange={() => onSelect(task.id)}
-                                    className="w-6 h-6 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                                />
-                            </div>
+                            <div className="mt-1"><input type="checkbox" checked={isSelected} onChange={() => onSelect(task.id)} className="w-6 h-6 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"/></div>
                         ) : (
-                            <button 
-                                onClick={() => !isDeleted && onToggle(task)} 
-                                disabled={isDeleted}
-                                className={`mt-1 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 
-                                    ${isDeleted ? 'border-gray-300 text-gray-300 cursor-not-allowed' : 
-                                      isCompleted ? 'border-green-500 bg-green-500 text-white hover:bg-green-600' : 
-                                      'border-gray-300 hover:border-blue-500 text-transparent hover:text-blue-500'}`}
-                                title={isDeleted ? "已刪除" : (isCompleted ? "點擊復原為未完成" : "點擊完成")}
-                            >
-                                {isDeleted ? <Trash2 size={14} /> : (isCompleted ? <RotateCcw size={14} /> : <Check size={14} strokeWidth={3} />)}
-                            </button>
+                            <button onClick={() => !isDeleted && onToggle(task)} disabled={isDeleted} className={`mt-1 w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isDeleted ? 'border-gray-300 text-gray-300' : isCompleted ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 text-transparent hover:border-blue-500 hover:text-blue-500'}`}>{isDeleted ? <Trash2 size={14} /> : (isCompleted ? <RotateCcw size={14} /> : <Check size={14} strokeWidth={3} />)}</button>
                         )}
-                        
                         <div className="flex-1 min-w-0">
                             {task.isTicket ? (
-                                <div>
-                                    <div className="flex justify-between items-start flex-wrap gap-2">
-                                        <h3 className={`font-bold text-lg leading-tight mb-1 ${textClass}`}>{task.productName}</h3>
-                                        {task.expiry && <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${isCompleted || isDeleted ? 'bg-gray-200 text-gray-500' : (new Date(task.expiry) < new Date() ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700')}`}>{task.expiry} 到期</span>}
-                                    </div>
-                                    <div className={`text-sm font-mono inline-block px-2 py-0.5 rounded mt-1 border ${isCompleted || isDeleted ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>{task.serial}</div>
-                                </div>
-                            ) : (
-                                <div className={`break-words whitespace-pre-wrap ${textClass}`}>{task.text}</div>
-                            )}
-                            <NoteSection />
+                                <div><div className="flex justify-between items-start flex-wrap gap-2"><h3 className={`font-bold text-lg leading-tight mb-1 ${textClass}`}>{task.productName}</h3>{task.expiry && <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${isCompleted || isDeleted ? 'bg-gray-200 text-gray-500' : 'bg-green-100 text-green-700'}`}>{task.expiry} 到期</span>}</div><div className={`text-sm font-mono inline-block px-2 py-0.5 rounded mt-1 border ${isCompleted || isDeleted ? 'bg-gray-100 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>{task.serial}</div></div>
+                            ) : (<div className={`break-words whitespace-pre-wrap ${textClass}`}>{task.text}</div>)}
                             
-                            {/* Ticket Buttons */}
-                            {task.isTicket && (
-                                <div className="mt-3 flex gap-2 items-center flex-wrap">
-                                    <button onClick={() => setShowCodes(!showCodes)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${showCodes ? 'bg-blue-600 text-white' : ((isCompleted || isDeleted) ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' : 'bg-blue-50 text-blue-600 hover:bg-blue-100')}`}>
-                                        <ScanBarcode size={16} /> {showCodes ? '隱藏條碼' : '顯示條碼'}
-                                    </button>
-                                </div>
+                            {/* 顯示標籤 */}
+                            {task.tag && task.tag !== 'default' && (
+                                <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                    <Tag size={10} /> {task.tag}
+                                </span>
                             )}
-                        </div>
 
-                        {/* Action Buttons */}
+                            <NoteSection />
+                            {task.isTicket && <div className="mt-3 flex gap-2 items-center flex-wrap"><button onClick={() => setShowCodes(!showCodes)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100"><ScanBarcode size={16} /> {showCodes ? '隱藏條碼' : '顯示條碼'}</button></div>}
+                        </div>
                         <div className="flex flex-col gap-1 items-center">
-                            {/* Deleted View Actions */}
                             {isDeleted ? (
-                                <>
-                                    <button onClick={() => onRestore(task)} className="text-green-600 hover:text-green-800 transition-colors p-1" title="復原為未完成">
-                                        <RefreshCcw size={18} />
-                                    </button>
-                                    <button onClick={() => setIsEditingContent(true)} className="text-gray-400 hover:text-blue-600 transition-colors p-1" title="編輯內容">
-                                        <Pencil size={18} />
-                                    </button>
-                                    <button onClick={() => onPermanentDelete(task.id)} className="text-red-400 hover:text-red-700 transition-colors p-1" title="永久刪除">
-                                        <Trash2 size={18} />
-                                    </button>
-                                </>
+                                <><button onClick={() => onRestore(task)} className="text-green-600 p-1" title="復原"><RefreshCcw size={18} /></button><button onClick={() => onPermanentDelete(task.id)} className="text-red-400 p-1" title="永久刪除"><Trash2 size={18} /></button></>
                             ) : (
-                                // Active/Completed View Actions
-                                <>
-                                    {!isCompleted && (
-                                        <button onClick={() => setIsEditingContent(true)} className="text-gray-400 hover:text-blue-600 transition-colors p-1" title="編輯內容">
-                                            <Pencil size={18} />
-                                        </button>
-                                    )}
-                                    {!task.note && !isEditingNote && (
-                                        <button onClick={() => setIsEditingNote(true)} className="text-gray-400 hover:text-yellow-500 transition-colors p-1" title="新增備註">
-                                            <StickyNote size={18} />
-                                        </button>
-                                    )}
-                                    {/* Normal Delete Button (Moves to Trash) */}
-                                    {!isSelectionMode && (
-                                        <button onClick={() => onDelete(task.id)} className={`transition-colors p-1 ${isCompleted ? 'text-gray-400 hover:text-red-500' : 'text-gray-300 hover:text-red-500 opacity-50 hover:opacity-100'}`} title="移至垃圾桶">
-                                            <Trash size={18} />
-                                        </button>
-                                    )}
-                                </>
+                                <>{!isCompleted && <><button onClick={() => setIsEditingContent(true)} className="text-gray-400 hover:text-blue-600 p-1"><Pencil size={18} /></button>{!task.note && !isEditingNote && <button onClick={() => setIsEditingNote(true)} className="text-gray-400 hover:text-yellow-500 p-1"><StickyNote size={18} /></button>}</>}{!isSelectionMode && <button onClick={() => onDelete(task.id)} className="text-gray-300 hover:text-red-500 p-1"><Trash size={18} /></button>}</>
                             )}
                         </div>
                     </div>
-                    
-                    {/* Completion Date */}
                     {isCompleted && completedDate && <div className="pl-9 flex items-center"><span className="text-xs text-gray-400 flex items-center gap-1"><Clock size={10} /> {completedDate}</span></div>}
-
-                    {/* QR/Barcode Display */}
-                    {task.isTicket && showCodes && (
-                        <div className="bg-gray-50 p-4 border-t border-gray-100 flex flex-col items-center gap-6 animate-in slide-in-from-top-2 duration-200 mt-2">
-                            <BarcodeImage text={task.serial} />
-                            <QRCodeImage text={task.serial} size={150} />
-                            <div className="text-xs text-gray-400 font-mono tracking-widest">{task.serial}</div>
-                        </div>
-                    )}
+                    {task.isTicket && showCodes && <div className="bg-gray-50 p-4 border-t border-gray-100 flex flex-col items-center gap-6 mt-2"><BarcodeImage text={task.serial} /><QRCodeImage text={task.serial} size={150} /><div className="text-xs text-gray-400 font-mono tracking-widest">{task.serial}</div></div>}
                 </div>
             );
         };
@@ -355,19 +250,35 @@
             return (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
                     <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-                        <div className="flex items-center gap-3 mb-4 text-blue-600">
-                            <div className="bg-blue-100 p-2 rounded-lg"><ArrowRightLeft size={24} /></div>
-                            <h2 className="text-xl font-bold">資料搬家 (複製)</h2>
+                        <h2 className="text-xl font-bold mb-4">資料搬家 (複製)</h2>
+                        <input type="text" value={targetId} onChange={(e) => setTargetId(e.target.value)} placeholder="目標空間代碼" className="w-full px-3 py-2 border rounded-lg mb-4" />
+                        <div className="flex justify-end gap-3"><button onClick={onClose} className="px-4 py-2 text-gray-500">取消</button><button onClick={() => onMigrate(targetId)} disabled={!targetId.trim()} className="px-4 py-2 bg-blue-600 text-white rounded-lg">開始複製</button></div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Tag Manager Modal ---
+        const TagManagerModal = ({ isOpen, onClose, tags, onAddTag, onDeleteTag }) => {
+            const [newTag, setNewTag] = useState('');
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in">
+                    <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
+                        <h2 className="text-lg font-bold mb-4 flex items-center gap-2"><Tag size={20}/> 管理標籤</h2>
+                        <div className="flex gap-2 mb-4">
+                            <input type="text" value={newTag} onChange={(e) => setNewTag(e.target.value)} placeholder="新標籤名稱" className="flex-1 px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+                            <button onClick={() => { if(newTag.trim()) { onAddTag(newTag.trim()); setNewTag(''); } }} className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700"><Plus size={18}/></button>
                         </div>
-                        <p className="text-gray-600 mb-4 text-sm">將目前空間 <b>{currentSpaceId}</b> 的所有資料，複製到另一個新的空間代碼。<br/><br/><span className="text-orange-500 text-xs">注意：這會將資料「追加」到目標空間，原本的資料不會被刪除。</span></p>
-                        <div className="mb-6">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">目標空間代碼 (Target ID)</label>
-                            <input type="text" value={targetId} onChange={(e) => setTargetId(e.target.value)} placeholder="例如: new-space-2026" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                        <div className="max-h-60 overflow-y-auto space-y-2">
+                            {tags.length === 0 ? <p className="text-gray-400 text-sm text-center py-4">尚無自訂標籤</p> : tags.map(tag => (
+                                <div key={tag} className="flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-100">
+                                    <span className="text-gray-700 font-medium">{tag}</span>
+                                    <button onClick={() => { if(confirm(`確定刪除標籤「${tag}」嗎？\n(原本屬於此標籤的任務將變為未分類)`)) onDeleteTag(tag); }} className="text-red-400 hover:text-red-600"><X size={16}/></button>
+                                </div>
+                            ))}
                         </div>
-                        <div className="flex justify-end gap-3">
-                            <button onClick={onClose} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg text-sm">取消</button>
-                            <button onClick={() => onMigrate(targetId)} disabled={!targetId.trim() || targetId === currentSpaceId} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:bg-gray-300 flex items-center gap-2"><Copy size={16}/> 開始複製</button>
-                        </div>
+                        <button onClick={onClose} className="w-full mt-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg">關閉</button>
                     </div>
                 </div>
             );
@@ -390,122 +301,204 @@
             const [viewStatus, setViewStatus] = useState('active');
             const [filterType, setFilterType] = useState(() => localStorage.getItem('pref_filterType') || 'all');
             const [sortType, setSortType] = useState(() => localStorage.getItem('pref_sortType') || 'newest');
+            const [currentTagFilter, setCurrentTagFilter] = useState(() => localStorage.getItem('pref_tagFilter') || 'all');
+
+            // New Features State
+            const [tags, setTags] = useState([]); // List of custom tags strings
+            const [searchQuery, setSearchQuery] = useState('');
+            const [isSelectionMode, setIsSelectionMode] = useState(false);
+            const [selectedTasks, setSelectedTasks] = useState(new Set());
+            const [showTagManager, setShowTagManager] = useState(false);
+            const [showMigration, setShowMigration] = useState(false);
+            const [isMigrating, setIsMigrating] = useState(false);
 
             // Save Prefs
             useEffect(() => { localStorage.setItem('pref_filterType', filterType); }, [filterType]);
             useEffect(() => { localStorage.setItem('pref_sortType', sortType); }, [sortType]);
-
-            // Migration & Batch
-            const [showMigration, setShowMigration] = useState(false);
-            const [isMigrating, setIsMigrating] = useState(false);
-            const [isSelectionMode, setIsSelectionMode] = useState(false);
-            const [selectedTasks, setSelectedTasks] = useState(new Set());
+            useEffect(() => { localStorage.setItem('pref_tagFilter', currentTagFilter); }, [currentTagFilter]);
 
             useEffect(() => {
                 const initAuth = async () => {
                     if (!auth) return;
-                    try { await signInAnonymously(auth); } 
-                    catch (e) { 
-                        console.error("Auth failed:", e);
-                        setAuthError(e.message);
-                    }
+                    try { await signInAnonymously(auth); } catch (e) { setAuthError(e.message); }
                 };
                 initAuth();
                 if (auth) {
                     const unsubscribe = onAuthStateChanged(auth, (u) => {
-                        setUser(u);
-                        if (u) setAuthError('');
-                        if (workspaceId) setIsJoined(true);
+                        setUser(u); if (u) setAuthError(''); if (workspaceId) setIsJoined(true);
                     });
                     return () => unsubscribe();
                 } else { setLoading(false); }
             }, []);
 
+            // Data Sync (Tasks & Tags)
             useEffect(() => {
                 if (!user || !workspaceId || !db) { setLoading(false); return; }
                 setLoading(true);
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', workspaceId), orderBy('createdAt', 'desc'));
                 const unsubscribe = onSnapshot(q, (snapshot) => {
-                    setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    const loadedTasks = [];
+                    let loadedTags = [];
+                    snapshot.docs.forEach(doc => {
+                        if (doc.id === TAGS_DOC_ID) {
+                            loadedTags = doc.data().list || [];
+                        } else {
+                            loadedTasks.push({ id: doc.id, ...doc.data() });
+                        }
+                    });
+                    setTasks(loadedTasks);
+                    setTags(loadedTags);
                     setLoading(false);
                 }, (error) => { console.error("Fetch error:", error); setLoading(false); });
                 return () => unsubscribe();
             }, [user, workspaceId]);
 
+            // --- Logic: Processed Tasks (Filters & Search) ---
             const processedTasks = useMemo(() => {
                 let result = [...tasks];
                 
                 // 1. Status Filter
-                if (viewStatus === 'active') {
-                    result = result.filter(t => !t.completed && !t.isDeleted);
-                } else if (viewStatus === 'completed') {
-                    result = result.filter(t => t.completed && !t.isDeleted);
-                } else if (viewStatus === 'deleted') {
-                    result = result.filter(t => t.isDeleted);
-                }
+                if (viewStatus === 'active') result = result.filter(t => !t.completed && !t.isDeleted);
+                else if (viewStatus === 'completed') result = result.filter(t => t.completed && !t.isDeleted);
+                else if (viewStatus === 'deleted') result = result.filter(t => t.isDeleted);
 
                 // 2. Type Filter
                 if (filterType === 'ticket') result = result.filter(t => t.isTicket);
                 else if (filterType === 'normal') result = result.filter(t => !t.isTicket);
 
-                // 3. Sort
+                // 3. Tag Filter
+                if (currentTagFilter !== 'all') {
+                    if (currentTagFilter === 'uncategorized') {
+                        result = result.filter(t => !t.tag || t.tag === 'default');
+                    } else {
+                        result = result.filter(t => t.tag === currentTagFilter);
+                    }
+                }
+
+                // 4. Search Filter
+                if (searchQuery.trim()) {
+                    const q = searchQuery.toLowerCase();
+                    result = result.filter(t => 
+                        (t.productName || '').toLowerCase().includes(q) || 
+                        (t.text || '').toLowerCase().includes(q) ||
+                        (t.serial || '').toLowerCase().includes(q) ||
+                        (t.note || '').toLowerCase().includes(q)
+                    );
+                }
+
+                // 5. Sort
                 if (sortType === 'expiring') result.sort((a, b) => { if (a.expiry && b.expiry) return new Date(a.expiry) - new Date(b.expiry); if (a.expiry) return -1; if (b.expiry) return 1; return 0; });
                 else if (sortType === 'oldest') result.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
                 else result.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
                 return result;
-            }, [tasks, viewStatus, filterType, sortType]);
+            }, [tasks, viewStatus, filterType, sortType, currentTagFilter, searchQuery]);
 
             const handleJoin = (id) => { setWorkspaceId(id); localStorage.setItem('ticket_workspace_id', id); setIsJoined(true); };
 
             const handleAddTask = async () => {
-                if (!user) { alert(`尚未連線到雲端資料庫。`); return; }
+                if (!user) return;
                 let newTask = {};
-                let isTicketType = false;
+                const currentTagToSave = (currentTagFilter !== 'all' && currentTagFilter !== 'uncategorized') ? currentTagFilter : 'default';
 
                 if (inputMode === 'paste') {
                     if (!pasteVal.trim()) return;
                     const parsed = parseTicketInfo(pasteVal);
                     newTask = { 
                         text: pasteVal, isTicket: parsed.isTicket, serial: parsed.serial, productName: parsed.productName, expiry: parsed.expiry, 
-                        completed: false, isDeleted: false, createdAt: serverTimestamp(), note: '' 
+                        completed: false, isDeleted: false, createdAt: serverTimestamp(), note: '', tag: currentTagToSave
                     };
-                    isTicketType = parsed.isTicket;
                 } else {
-                    if (!manualName.trim()) { alert("請輸入事項內容/品名"); return; }
-                    const hasSerial = manualSerial.trim().length > 0;
+                    if (!manualName.trim()) return;
                     const fmtExpiry = manualExpiry ? manualExpiry.replace(/-/g, '/') : '';
                     newTask = {
-                        text: manualName, isTicket: hasSerial, serial: manualSerial.trim(), productName: manualName, expiry: fmtExpiry, 
-                        completed: false, isDeleted: false, createdAt: serverTimestamp(), note: ''
+                        text: manualName, isTicket: !!manualSerial.trim(), serial: manualSerial.trim(), productName: manualName, expiry: fmtExpiry, 
+                        completed: false, isDeleted: false, createdAt: serverTimestamp(), note: '', tag: currentTagToSave
                     };
-                    isTicketType = hasSerial;
                 }
 
                 try {
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', workspaceId), newTask);
                     setPasteVal(''); setManualName(''); setManualSerial(''); setManualExpiry('');
-                    if (viewStatus === 'completed' || viewStatus === 'deleted') setViewStatus('active');
-                    if (filterType === 'normal' && isTicketType) setFilterType('all');
-                } catch (e) {
-                    alert(`新增失敗：${e.message}`);
-                }
+                    if (viewStatus !== 'active') setViewStatus('active');
+                } catch (e) { alert(`新增失敗：${e.message}`); }
             };
 
-            const handleToggleComplete = async (task) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { completed: !task.completed, completedAt: !task.completed ? serverTimestamp() : null }); } catch (e) { console.error(e); } };
-            const handleUpdateNote = async (id, newNote) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { note: newNote }); } catch (e) { console.error(e); } };
-            const handleUpdateText = async (id, newText) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { text: newText, productName: newText }); } catch (e) { console.error(e); } };
-            const handleUpdateTicket = async (id, name, serial, expiry) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { productName: name, serial: serial, expiry: expiry }); } catch (e) { console.error(e); } };
-            
-            // Soft Delete (Move to Trash)
-            const handleDelete = async (id) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { isDeleted: true, deletedAt: serverTimestamp() }); } catch (e) { console.error(e); } };
-            
-            // Restore from Trash (Reset to Active)
-            const handleRestore = async (task) => { if (!user) return; try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { isDeleted: false, completed: false }); } catch (e) { console.error(e); } };
-            
-            // Permanent Delete
-            const handlePermanentDelete = async (id) => { if (!user) return; if (!window.confirm("確定要永久刪除此項目嗎？")) return; try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id)); } catch (e) { console.error(e); } };
-            
+            // Basic Actions
+            const handleToggleComplete = async (task) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { completed: !task.completed, completedAt: !task.completed ? serverTimestamp() : null }); };
+            const handleUpdateNote = async (id, newNote) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { note: newNote }); };
+            const handleUpdateText = async (id, newText) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { text: newText, productName: newText }); };
+            const handleUpdateTicket = async (id, name, serial, expiry) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { productName: name, serial: serial, expiry: expiry }); };
+            const handleDelete = async (id) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { isDeleted: true, deletedAt: serverTimestamp() }); };
+            const handleRestore = async (task) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { isDeleted: false, completed: false }); };
+            const handlePermanentDelete = async (id) => { if (!user) return; if(confirm("確定永久刪除？")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id)); };
             const handleLogout = () => { localStorage.removeItem('ticket_workspace_id'); setWorkspaceId(''); setIsJoined(false); setTasks([]); };
+
+            // Tag Management
+            const handleAddTag = async (newTag) => {
+                if (!user || tags.includes(newTag)) return;
+                const updatedTags = [...tags, newTag];
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID), { list: updatedTags }, { merge: true });
+            };
+            const handleDeleteTag = async (tagToDelete) => {
+                if (!user) return;
+                const updatedTags = tags.filter(t => t !== tagToDelete);
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, TAGS_DOC_ID), { list: updatedTags }, { merge: true });
+                // Reset tasks with this tag to default
+                const tasksToUpdate = tasks.filter(t => t.tag === tagToDelete);
+                const batch = writeBatch(db);
+                tasksToUpdate.forEach(t => {
+                    batch.update(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id), { tag: 'default' });
+                });
+                await batch.commit();
+                if (currentTagFilter === tagToDelete) setCurrentTagFilter('all');
+            };
+
+            // Batch Operations
+            const handleSelect = (id) => {
+                const newSet = new Set(selectedTasks);
+                if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
+                setSelectedTasks(newSet);
+            };
+            const handleSelectAll = () => {
+                if (selectedTasks.size === processedTasks.length && processedTasks.length > 0) {
+                    setSelectedTasks(new Set()); // Deselect all
+                } else {
+                    const newSet = new Set();
+                    processedTasks.forEach(t => newSet.add(t.id));
+                    setSelectedTasks(newSet);
+                }
+            };
+            
+            const handleBatchMoveTag = async (targetTag) => {
+                if (!user || selectedTasks.size === 0) return;
+                const batch = writeBatch(db);
+                selectedTasks.forEach(id => {
+                    batch.update(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { tag: targetTag });
+                });
+                await batch.commit();
+                setIsSelectionMode(false); setSelectedTasks(new Set());
+            };
+
+            const handleBatchDelete = async () => {
+                if (!user || selectedTasks.size === 0) return;
+                if (!confirm(`確定將 ${selectedTasks.size} 個項目移至垃圾桶？`)) return;
+                const batch = writeBatch(db);
+                selectedTasks.forEach(id => batch.update(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { isDeleted: true }));
+                await batch.commit();
+                setIsSelectionMode(false); setSelectedTasks(new Set());
+            };
+
+            const handleEmptyTrash = async () => {
+                if (!user) return;
+                const trashItems = tasks.filter(t => t.isDeleted);
+                if (trashItems.length === 0) return;
+                if (!confirm(`⚠️ 警告：確定清空垃圾桶中的 ${trashItems.length} 個項目嗎？此動作無法復原！`)) return;
+                
+                // Batch delete (limit 500)
+                const batch = writeBatch(db);
+                trashItems.forEach(t => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id)));
+                await batch.commit();
+            };
 
             const handleMigrate = async (targetId) => {
                 if (!targetId || targetId === workspaceId) return;
@@ -524,192 +517,153 @@
                     });
                     if (count > 0) chunks.push(batch);
                     await Promise.all(chunks.map(b => b.commit()));
-                    if (confirm(`成功搬移 ${snapshot.size} 筆資料到「${targetId}」！\n\n是否要直接切換到新空間？`)) { handleJoin(targetId); }
+                    if (confirm(`成功搬移到「${targetId}」！是否切換？`)) { handleJoin(targetId); }
                     setShowMigration(false);
                 } catch (e) { alert("搬移失敗：" + e.message); } finally { setIsMigrating(false); }
             };
 
-            // --- Batch Operations ---
-            const handleBatchSelect = (id) => {
-                const newSet = new Set(selectedTasks);
-                if (newSet.has(id)) newSet.delete(id);
-                else newSet.add(id);
-                setSelectedTasks(newSet);
-            };
-
-            const toggleSelectionMode = () => {
-                setIsSelectionMode(!isSelectionMode);
-                setSelectedTasks(new Set());
-            };
-
-            const handleBatchDelete = async () => {
-                if(!user || selectedTasks.size === 0) return;
-                if(!confirm(`確定要將選取的 ${selectedTasks.size} 個項目移至垃圾桶嗎？`)) return;
-                try {
-                    const batch = writeBatch(db);
-                    selectedTasks.forEach(id => {
-                        const ref = doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id);
-                        batch.update(ref, { isDeleted: true, deletedAt: serverTimestamp() });
-                    });
-                    await batch.commit();
-                    setIsSelectionMode(false);
-                    setSelectedTasks(new Set());
-                } catch(e) { console.error("Batch delete failed", e); }
-            };
-
-            const handleBatchRestore = async () => {
-                if(!user || selectedTasks.size === 0) return;
-                try {
-                    const batch = writeBatch(db);
-                    selectedTasks.forEach(id => {
-                        const ref = doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id);
-                        batch.update(ref, { isDeleted: false, completed: false });
-                    });
-                    await batch.commit();
-                    setIsSelectionMode(false);
-                    setSelectedTasks(new Set());
-                } catch(e) { console.error("Batch restore failed", e); }
-            };
-
-            const handleBatchPermanentDelete = async () => {
-                if(!user || selectedTasks.size === 0) return;
-                if(!confirm(`⚠️ 警告：確定要永久刪除選取的 ${selectedTasks.size} 個項目嗎？此動作無法復原！`)) return;
-                try {
-                    const batch = writeBatch(db);
-                    selectedTasks.forEach(id => {
-                        const ref = doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id);
-                        batch.delete(ref);
-                    });
-                    await batch.commit();
-                    setIsSelectionMode(false);
-                    setSelectedTasks(new Set());
-                } catch(e) { console.error("Batch perm delete failed", e); }
-            };
-
             if (!auth && !firebaseConfig.apiKey) return <div className="min-h-screen flex items-center justify-center"><p>尚未設定 Config</p></div>;
-            if (!isJoined && !user) return <LoginScreen onJoin={handleJoin} authError={authError} />;
-            if (isJoined && !user && authError) return <LoginScreen onJoin={handleJoin} authError={authError} />;
             if (!isJoined) return <LoginScreen onJoin={handleJoin} authError={authError} />;
 
             return (
                 <div className="min-h-screen bg-[#F8FAFC] text-gray-800 font-sans pb-24">
                     {/* Header */}
                     <div className="bg-white sticky top-0 z-10 shadow-sm border-b border-gray-100">
-                        <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="bg-blue-600 text-white p-1.5 rounded-lg"><Calendar size={20} /></div>
-                                <div>
-                                    <h1 className="font-bold text-lg leading-none flex items-center gap-2">
-                                        票券記事本
-                                        <span title={user ? "已連線" : "連線中..."} className={`w-2 h-2 rounded-full ${user ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></span>
-                                    </h1>
-                                    <p className="text-xs text-gray-400 mt-0.5 font-mono">ID: {workspaceId}</p>
+                        <div className="max-w-3xl mx-auto px-4 py-3">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="bg-blue-600 text-white p-1.5 rounded-lg"><Calendar size={20} /></div>
+                                    <div>
+                                        <h1 className="font-bold text-lg leading-none">票券記事本</h1>
+                                        <p className="text-xs text-gray-400 mt-0.5 font-mono">ID: {workspaceId}</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setShowMigration(true)} className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 flex items-center gap-1"><ArrowRightLeft size={14} /> 搬家</button>
+                                    <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-500 px-2 py-1 rounded hover:bg-gray-50">切換</button>
                                 </div>
                             </div>
-                            <div className="flex gap-2">
-                                <button onClick={() => setShowMigration(true)} className="text-sm text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors flex items-center gap-1" title="資料搬家">
-                                    <ArrowRightLeft size={16} /> <span className="hidden sm:inline">搬家</span>
-                                </button>
-                                <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-red-500 px-3 py-1 rounded-md hover:bg-gray-50 transition-colors">切換空間</button>
+                            
+                            {/* Search & Tag Bar */}
+                            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                                <div className="relative flex-1 min-w-[150px]">
+                                    <Search size={16} className="absolute left-2 top-2 text-gray-400" />
+                                    <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜尋關鍵字..." className="w-full pl-8 pr-2 py-1.5 text-sm bg-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
+                                    {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"><X size={14}/></button>}
+                                </div>
+                                <button onClick={() => setCurrentTagFilter('all')} className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-colors ${currentTagFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>全部</button>
+                                {tags.map(tag => (
+                                    <button key={tag} onClick={() => setCurrentTagFilter(tag)} className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-colors flex items-center gap-1 ${currentTagFilter === tag ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                                        <Tag size={12} /> {tag}
+                                    </button>
+                                ))}
+                                <button onClick={() => setCurrentTagFilter('uncategorized')} className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-colors ${currentTagFilter === 'uncategorized' ? 'bg-gray-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>未分類</button>
+                                <button onClick={() => setShowTagManager(true)} className="px-2 py-1.5 rounded-lg text-sm text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-100 whitespace-nowrap flex items-center gap-1"><FolderPlus size={14}/> 管理</button>
                             </div>
                         </div>
                     </div>
-                    
-                    {authError && <div className="bg-red-50 text-red-600 px-4 py-2 text-sm text-center border-b border-red-100">連線錯誤：{authError}</div>}
-                    
-                    <div className="max-w-3xl mx-auto px-4 py-6">
+
+                    <div className="max-w-3xl mx-auto px-4 py-4">
                         {/* Input Area */}
                         {viewStatus === 'active' && (
-                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-6 transition-all focus-within:shadow-md focus-within:border-blue-300 ring-4 ring-transparent focus-within:ring-blue-50">
-                                <div className="flex justify-end mb-2">
-                                    <button onClick={() => setInputMode(inputMode === 'paste' ? 'manual' : 'paste')} className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded-md transition-colors">
-                                        {inputMode === 'paste' ? <Pencil size={12}/> : <ClipboardPaste size={12}/>}
-                                        {inputMode === 'paste' ? '切換手動輸入' : '切換快速貼上'}
-                                    </button>
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-4 transition-all focus-within:ring-2 focus-within:ring-blue-100">
+                                <div className="flex justify-between mb-2">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">新增項目到: {currentTagFilter === 'all' || currentTagFilter === 'uncategorized' ? '未分類' : currentTagFilter}</span>
+                                    <button onClick={() => setInputMode(inputMode === 'paste' ? 'manual' : 'paste')} className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded transition-colors">{inputMode === 'paste' ? <Pencil size={12}/> : <ClipboardPaste size={12}/>} {inputMode === 'paste' ? '手動' : '貼上'}</button>
                                 </div>
                                 {inputMode === 'paste' ? (
-                                    <textarea value={pasteVal} onChange={(e) => setPasteVal(e.target.value)} placeholder="直接貼上電子票券內容，自動辨識序號與期限..." className="w-full text-base resize-none outline-none text-gray-700 placeholder:text-gray-400 min-h-[80px]" rows={3} />
+                                    <textarea value={pasteVal} onChange={(e) => setPasteVal(e.target.value)} placeholder="貼上票券內容..." className="w-full text-base resize-none outline-none text-gray-700 placeholder:text-gray-400 min-h-[60px]" rows={3} />
                                 ) : (
                                     <div className="space-y-3">
-                                        <div><input type="text" value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="輸入事項內容或票券品名 (必填)" className="w-full text-base outline-none border-b border-gray-200 pb-1 focus:border-blue-500 placeholder:text-gray-400" /></div>
-                                        <div className="flex gap-3">
-                                            <div className="flex-1"><label className="text-xs text-gray-400 block mb-1">票券序號 (選填)</label><input type="text" value={manualSerial} onChange={(e) => setManualSerial(e.target.value)} placeholder="輸入序號" className="w-full text-sm outline-none bg-gray-50 p-2 rounded focus:ring-1 focus:ring-blue-200 font-mono" /></div>
-                                            <div className="w-1/3"><label className="text-xs text-gray-400 block mb-1">到期日 (選填)</label><input type="date" value={manualExpiry} onChange={(e) => setManualExpiry(e.target.value)} className="w-full text-sm outline-none bg-gray-50 p-2 rounded focus:ring-1 focus:ring-blue-200" /></div>
-                                        </div>
+                                        <div><input type="text" value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="輸入內容 (必填)" className="w-full border-b pb-1 outline-none" /></div>
+                                        <div className="flex gap-2"><input type="text" value={manualSerial} onChange={(e) => setManualSerial(e.target.value)} placeholder="序號 (選填)" className="flex-1 bg-gray-50 p-2 rounded text-sm" /><input type="date" value={manualExpiry} onChange={(e) => setManualExpiry(e.target.value)} className="w-1/3 bg-gray-50 p-2 rounded text-sm" /></div>
                                     </div>
                                 )}
-                                <div className="flex justify-between items-center mt-3 border-t border-gray-50 pt-3">
-                                    <span className="text-xs text-gray-400 hidden sm:inline">{inputMode === 'paste' ? '提示：貼上含「票券序號」文字將自動轉卡片' : '提示：輸入序號後將自動產生 QR Code 與 Barcode'}</span>
-                                    <button onClick={handleAddTask} disabled={inputMode === 'paste' ? !pasteVal.trim() : !manualName.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-5 py-2 rounded-xl font-medium transition-all flex items-center gap-2 ml-auto">
-                                        {user ? <Plus size={18} /> : <WifiOff size={18} />} {user ? '新增' : '連線中...'}
-                                    </button>
-                                </div>
+                                <div className="flex justify-end mt-2"><button onClick={handleAddTask} disabled={inputMode === 'paste' ? !pasteVal.trim() : !manualName.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-1"><Plus size={16}/> 新增</button></div>
                             </div>
                         )}
 
                         {/* View Tabs */}
-                        <div className="flex gap-4 mb-4 border-b border-gray-200 overflow-x-auto">
-                            <button onClick={() => setViewStatus('active')} className={`pb-2 px-1 text-base font-medium transition-colors flex items-center gap-2 border-b-2 whitespace-nowrap ${viewStatus === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><ListTodo size={18} /> 待辦 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => !t.completed && !t.isDeleted).length}</span></button>
-                            <button onClick={() => setViewStatus('completed')} className={`pb-2 px-1 text-base font-medium transition-colors flex items-center gap-2 border-b-2 whitespace-nowrap ${viewStatus === 'completed' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><CheckCircle2 size={18} /> 已完成 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => t.completed && !t.isDeleted).length}</span></button>
-                            <button onClick={() => setViewStatus('deleted')} className={`pb-2 px-1 text-base font-medium transition-colors flex items-center gap-2 border-b-2 whitespace-nowrap ${viewStatus === 'deleted' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><Trash size={18} /> 垃圾桶 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => t.isDeleted).length}</span></button>
+                        <div className="flex gap-4 mb-4 border-b border-gray-200">
+                            <button onClick={() => setViewStatus('active')} className={`pb-2 px-1 text-base font-medium flex items-center gap-2 border-b-2 ${viewStatus === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><ListTodo size={18} /> 待辦 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => !t.completed && !t.isDeleted).length}</span></button>
+                            <button onClick={() => setViewStatus('completed')} className={`pb-2 px-1 text-base font-medium flex items-center gap-2 border-b-2 ${viewStatus === 'completed' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500'}`}><CheckCircle2 size={18} /> 已完成 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => t.completed && !t.isDeleted).length}</span></button>
+                            <button onClick={() => setViewStatus('deleted')} className={`pb-2 px-1 text-base font-medium flex items-center gap-2 border-b-2 ${viewStatus === 'deleted' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500'}`}><Trash size={18} /> 垃圾桶 <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">{tasks.filter(t => t.isDeleted).length}</span></button>
                         </div>
 
-                        {/* Toolbar */}
-                        {(tasks.length > 0) && (
-                            <div className="flex flex-col sm:flex-row gap-3 mb-4 justify-between items-start sm:items-center bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
-                                <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 no-scrollbar">
-                                    <button 
-                                        onClick={toggleSelectionMode}
-                                        className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap flex items-center gap-1 ${isSelectionMode ? 'bg-blue-600 text-white' : 'text-gray-600 bg-gray-100 hover:bg-gray-200'}`}
-                                    >
-                                        <CheckSquare size={16}/> {isSelectionMode ? '取消多選' : '多選'}
-                                    </button>
-                                    
-                                    {!isSelectionMode && (
-                                        <>
-                                            <div className="w-px h-6 bg-gray-300 mx-1"></div>
-                                            <Filter size={16} className="text-gray-400 flex-shrink-0" />
-                                            <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-                                                <button onClick={() => setFilterType('all')} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${filterType === 'all' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>全部</button>
-                                                <button onClick={() => setFilterType('ticket')} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap flex items-center gap-1 ${filterType === 'ticket' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Tag size={14} /> 票券</button>
-                                                <button onClick={() => setFilterType('normal')} className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap ${filterType === 'normal' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>一般</button>
+                        {/* Operations Bar */}
+                        <div className="flex flex-col sm:flex-row gap-3 mb-4 justify-between items-center bg-white p-2 rounded-xl border border-gray-200 shadow-sm">
+                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <button onClick={() => { setIsSelectionMode(!isSelectionMode); setSelectedTasks(new Set()); }} className={`px-3 py-1.5 rounded-md text-sm font-medium flex items-center gap-1 ${isSelectionMode ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                                    <CheckSquare size={16}/> {isSelectionMode ? '結束多選' : '多選'}
+                                </button>
+                                {isSelectionMode && (
+                                    <>
+                                        <button onClick={handleSelectAll} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-md text-sm hover:bg-gray-200">
+                                            {selectedTasks.size === processedTasks.length && processedTasks.length > 0 ? '取消全選' : '全選'}
+                                        </button>
+                                        <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                                        {/* Batch Actions */}
+                                        {selectedTasks.size > 0 && (
+                                            <div className="flex gap-2 animate-in fade-in zoom-in duration-200">
+                                                {viewStatus !== 'deleted' && (
+                                                    <select 
+                                                        onChange={(e) => { if(e.target.value) handleBatchMoveTag(e.target.value); }} 
+                                                        className="bg-indigo-50 text-indigo-700 text-sm px-2 py-1.5 rounded-md border-indigo-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                        value=""
+                                                    >
+                                                        <option value="" disabled>移動到...</option>
+                                                        <option value="default">未分類</option>
+                                                        {tags.map(t => <option key={t} value={t}>{t}</option>)}
+                                                    </select>
+                                                )}
+                                                <button onClick={handleBatchDelete} className="px-3 py-1.5 bg-red-100 text-red-700 rounded-md text-sm hover:bg-red-200 flex items-center gap-1"><Trash size={14}/> 刪除</button>
                                             </div>
-                                        </>
-                                    )}
-                                </div>
-                                
-                                {isSelectionMode ? (
-                                    <div className="flex gap-2">
-                                        {viewStatus === 'deleted' ? (
-                                            <>
-                                                <button onClick={handleBatchRestore} disabled={selectedTasks.size === 0} className="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-green-200">復原 ({selectedTasks.size})</button>
-                                                <button onClick={handleBatchPermanentDelete} disabled={selectedTasks.size === 0} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-red-700">永久刪除 ({selectedTasks.size})</button>
-                                            </>
-                                        ) : (
-                                            <button onClick={handleBatchDelete} disabled={selectedTasks.size === 0} className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-red-200">移至垃圾桶 ({selectedTasks.size})</button>
                                         )}
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center gap-2 w-full sm:w-auto ml-auto sm:ml-0">
-                                        <ArrowUpDown size={16} className="text-gray-400 flex-shrink-0" />
-                                        <select value={sortType} onChange={(e) => setSortType(e.target.value)} className="w-full sm:w-auto bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2">
-                                            <option value="newest">最新建立</option>
-                                            <option value="expiring">快到期優先</option>
-                                            <option value="oldest">最早建立</option>
-                                        </select>
-                                    </div>
+                                    </>
                                 )}
                             </div>
-                        )}
+                            
+                            {/* Empty Trash Button */}
+                            {viewStatus === 'deleted' && !isSelectionMode && tasks.some(t => t.isDeleted) && (
+                                <button onClick={handleEmptyTrash} className="ml-auto px-3 py-1.5 bg-red-600 text-white rounded-md text-sm hover:bg-red-700 flex items-center gap-1 shadow-sm">
+                                    <Trash2 size={16}/> 清空垃圾桶
+                                </button>
+                            )}
 
-                        {/* Task List */}
-                        {loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div> : tasks.length === 0 && viewStatus === 'active' ? <div className="text-center py-16 px-4"><div className="inline-block p-4 bg-gray-100 rounded-full mb-4"><Check size={32} className="text-gray-400" /></div><h3 className="text-gray-500 font-medium text-lg">目前沒有待辦事項</h3><p className="text-gray-400 text-sm mt-1">試著貼上一張電子票券看看！</p></div> : <div className="space-y-2"><div className="flex items-center justify-between px-1 mb-2"><h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{viewStatus === 'active' ? '待辦清單' : (viewStatus === 'completed' ? '已完成項目' : '垃圾桶')} • 共 {processedTasks.length} 筆</h2></div>{processedTasks.length === 0 ? <div className="text-center py-10 bg-white rounded-xl border border-dashed border-gray-300"><p className="text-gray-400">沒有項目</p></div> : processedTasks.map(task => <TaskItem key={task.id} task={task} onToggle={handleToggleComplete} onDelete={handleDelete} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateText={handleUpdateText} onUpdateTicket={handleUpdateTicket} isSelectionMode={isSelectionMode} isSelected={selectedTasks.has(task.id)} onSelect={handleBatchSelect} />)}</div>}
+                            {!isSelectionMode && (
+                                <div className="flex gap-2 ml-auto">
+                                    <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                                        <button onClick={() => setFilterType('all')} className={`px-2 py-1 rounded text-xs ${filterType === 'all' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>全部</button>
+                                        <button onClick={() => setFilterType('ticket')} className={`px-2 py-1 rounded text-xs ${filterType === 'ticket' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>票券</button>
+                                        <button onClick={() => setFilterType('normal')} className={`px-2 py-1 rounded text-xs ${filterType === 'normal' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>一般</button>
+                                    </div>
+                                    <select value={sortType} onChange={(e) => setSortType(e.target.value)} className="bg-gray-50 border text-gray-700 text-xs rounded-lg p-1.5"><option value="newest">最新</option><option value="expiring">快到期</option><option value="oldest">最早</option></select>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* List */}
+                        {loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div> : (
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between px-1 mb-2">
+                                    <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                                        {viewStatus === 'active' ? '待辦清單' : (viewStatus === 'completed' ? '已完成項目' : '垃圾桶')} • {processedTasks.length} 筆
+                                        {isSelectionMode && <span className="text-blue-600 ml-2">(已選 {selectedTasks.size})</span>}
+                                    </h2>
+                                </div>
+                                {processedTasks.length === 0 ? <div className="text-center py-10 bg-white rounded-xl border border-dashed border-gray-300 text-gray-400">沒有符合的項目</div> : 
+                                    processedTasks.map(task => <TaskItem key={task.id} task={task} onToggle={handleToggleComplete} onDelete={handleDelete} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateText={handleUpdateText} onUpdateTicket={handleUpdateTicket} isSelectionMode={isSelectionMode} isSelected={selectedTasks.has(task.id)} onSelect={handleSelect} />)
+                                }
+                            </div>
+                        )}
                     </div>
+
                     {viewStatus === 'active' && <div className="fixed bottom-6 right-6 md:hidden"><button onClick={() => document.querySelector('textarea')?.focus()} className="bg-blue-600 text-white p-4 rounded-full shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95"><Plus size={24} /></button></div>}
                     
-                    {/* Migration Modal */}
+                    {/* Modals */}
+                    <TagManagerModal isOpen={showTagManager} onClose={() => setShowTagManager(false)} tags={tags} onAddTag={handleAddTag} onDeleteTag={handleDeleteTag} />
                     {showMigration && <MigrationModal isOpen={showMigration} onClose={() => setShowMigration(false)} currentSpaceId={workspaceId} onMigrate={handleMigrate}/>}
-                    {isMigrating && <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center"><div className="bg-white p-6 rounded-xl flex flex-col items-center gap-4"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p className="font-bold text-gray-700">正在搬移資料中...</p></div></div>}
+                    {isMigrating && <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center"><div className="bg-white p-6 rounded-xl flex flex-col items-center gap-4"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p className="font-bold text-gray-700">處理中...</p></div></div>}
                 </div>
             );
         };
