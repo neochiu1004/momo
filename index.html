@@ -197,10 +197,14 @@
             return result;
         };
 
-        const formatTimestamp = (timestamp) => {
+        const formatTimestamp = (timestamp, includeTime = false) => {
             if (!timestamp) return '';
             const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp);
-            return `${date.getFullYear()}/${(date.getMonth()+1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}`;
+            const dateStr = `${date.getFullYear()}/${(date.getMonth()+1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}`;
+            if (includeTime) {
+                return `${dateStr} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+            }
+            return dateStr;
         };
 
         const checkIsExpiringSoon = (expiryStr, thresholdDays) => {
@@ -216,16 +220,14 @@
         
         const copyToClipboard = async (text) => {
             if (!text) return false;
-            // First try modern API
             try {
                 await navigator.clipboard.writeText(text);
                 return true;
             } catch (err) {
-                // Fallback to deprecated execCommand which usually works in iframes/webviews
                 try {
                     const textArea = document.createElement("textarea");
                     textArea.value = text;
-                    textArea.style.position = "fixed";  // Avoid scrolling to bottom
+                    textArea.style.position = "fixed";
                     document.body.appendChild(textArea);
                     textArea.focus();
                     textArea.select();
@@ -269,7 +271,8 @@
             const [justCopied, setJustCopied] = useState(false);
             const isCompleted = task.completed;
             const isDeleted = task.isDeleted;
-            const completedDate = task.completedAt ? formatTimestamp(task.completedAt) : '';
+            const completedDate = task.completedAt ? formatTimestamp(task.completedAt, true) : ''; // Include time
+            const createdDate = task.createdAt ? formatTimestamp(task.createdAt, true) : ''; // Include time
             const [isEditingContent, setIsEditingContent] = useState(false);
             
             // Edit states
@@ -437,7 +440,13 @@
                             )}
                         </div>
                     </div>
-                    {isCompleted && completedDate && <div className="ml-10 mt-2 text-[10px] text-slate-400 flex items-center gap-1"><Clock size={10} /> 完成於 {completedDate}</div>}
+                    {/* Time display: Completed time for completed items, Created time for active/others */}
+                    {isCompleted && completedDate ? (
+                        <div className="ml-10 mt-2 text-[10px] text-slate-400 flex items-center gap-1"><Clock size={10} /> 完成於 {completedDate}</div>
+                    ) : (
+                        createdDate && <div className="ml-10 mt-2 text-[10px] text-slate-300 flex items-center gap-1">新增於 {createdDate}</div>
+                    )}
+                    
                     {showCodes && (
                         <div className="mt-4 pt-6 border-t border-dashed border-slate-200 animate-in cursor-default" onClick={(e) => e.stopPropagation()}>
                             <div className="bg-white p-6 rounded-2xl flex flex-col items-center gap-5 text-center shadow-sm border border-slate-100 relative">
@@ -642,6 +651,22 @@
                             const compressed = await compressImage(blob);
                             setPendingImage(compressed);
                             foundAny = true;
+                        }
+                        
+                        // New: Check for HTML type which might contain images (web copy)
+                        else if (item.types.includes('text/html')) {
+                             const blob = await item.getType('text/html');
+                             const html = await blob.text();
+                             const parser = new DOMParser();
+                             const doc = parser.parseFromString(html, 'text/html');
+                             const img = doc.querySelector('img');
+                             if (img && img.src) {
+                                 // Simple logic to prefer pendingImage if found.
+                                 // Note: Handling external CORS images client-side is tricky, but data-uris work fine.
+                                 // We set it as pending. If it fails to load later, user can replace.
+                                 setPendingImage(img.src);
+                                 foundAny = true;
+                             }
                         }
 
                         if (item.types.includes('text/plain')) {
