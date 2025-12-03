@@ -66,7 +66,7 @@
             CheckCircle2, ListTodo, Clock, StickyNote, Save, X, ScanBarcode, 
             Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, 
             RefreshCcw, Search, FolderPlus, AlertCircle, MoreVertical, Copy as CopyIcon, Link as LinkIcon,
-            Image as ImageIcon, Upload, Clipboard
+            Image as ImageIcon, Upload, Clipboard, ClipboardList
         } from 'lucide-react';
 
         // --- Firebase Configuration ---
@@ -215,7 +215,28 @@
         };
         
         const copyToClipboard = async (text) => {
-            try { await navigator.clipboard.writeText(text); return true; } catch (err) { return false; }
+            if (!text) return false;
+            // First try modern API
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (err) {
+                // Fallback to deprecated execCommand which usually works in iframes/webviews
+                try {
+                    const textArea = document.createElement("textarea");
+                    textArea.value = text;
+                    textArea.style.position = "fixed";  // Avoid scrolling to bottom
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    return successful;
+                } catch (fallbackErr) {
+                    console.error('Failed to copy:', fallbackErr);
+                    return false;
+                }
+            }
         };
 
         // --- Components ---
@@ -227,7 +248,7 @@
                     <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border border-slate-100">
                         <div className="text-center mb-8">
                             <div className="bg-blue-100 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 transform rotate-3 shadow-blue-100 shadow-lg"><Calendar className="text-blue-600 w-10 h-10" /></div>
-                            <h1 className="text-3xl font-extrabold text-slate-800 mb-2">票券小幫手 <span className="text-blue-600">Pro</span></h1>
+                            <h1 className="text-3xl font-extrabold text-slate-800 mb-2">票券小幫手 <span className="text-blue-600">Pro+</span></h1>
                             <p className="text-slate-500">雲端同步 · 隱私保護 · 到期提醒</p>
                         </div>
                         {authError && <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 flex items-center gap-2"><AlertCircle size={16}/> {authError}</div>}
@@ -276,9 +297,13 @@
             const handleCopySerial = async (e) => {
                 e.stopPropagation();
                 if (task.serial) {
-                    await copyToClipboard(task.serial);
-                    setJustCopied(true);
-                    setTimeout(() => setJustCopied(false), 2000);
+                    const success = await copyToClipboard(task.serial);
+                    if (success) {
+                        setJustCopied(true);
+                        setTimeout(() => setJustCopied(false), 2000);
+                    } else {
+                        alert("複製失敗，請手動複製");
+                    }
                 }
             };
             
@@ -594,7 +619,65 @@
                         if (foundImage) break;
                     }
                     if (!foundImage) alert("剪貼簿中沒有發現圖片");
-                } catch (err) { console.error(err); alert("無法讀取剪貼簿。請確認瀏覽器權限，或使用 Ctrl+V 貼上。"); }
+                } catch (err) { 
+                    // Improved error handling
+                    console.error("Native paste failed:", err); 
+                    setInputMode('paste'); // Force switch to paste mode
+                    setTimeout(() => {
+                        alert("⚠️ 瀏覽器安全限制：\n無法透過按鈕直接讀取。\n\n請直接點擊「輸入框」，並使用「貼上」功能 (Ctrl+V 或長按貼上)。\n系統會自動抓取剪貼簿中的文字與圖片。");
+                        document.querySelector('textarea')?.focus();
+                    }, 100);
+                }
+            };
+
+            const handleSmartPaste = async () => {
+                try {
+                    const clipboardItems = await navigator.clipboard.read();
+                    let foundAny = false;
+
+                    for (const item of clipboardItems) {
+                        const imageTypes = item.types.filter(type => type.startsWith('image/'));
+                        if (imageTypes.length > 0) {
+                            const blob = await item.getType(imageTypes[0]);
+                            const compressed = await compressImage(blob);
+                            setPendingImage(compressed);
+                            foundAny = true;
+                        }
+
+                        if (item.types.includes('text/plain')) {
+                            const blob = await item.getType('text/plain');
+                            const text = await blob.text();
+                            if (text) {
+                                setPasteVal(prev => prev + (prev ? '\n' : '') + text);
+                                setInputMode('paste');
+                                foundAny = true;
+                            }
+                        }
+                    }
+
+                    if (!foundAny) {
+                        // Fallback to text only
+                        try {
+                            const text = await navigator.clipboard.readText();
+                            if (text) {
+                                setPasteVal(prev => prev + (prev ? '\n' : '') + text);
+                                setInputMode('paste');
+                            } else {
+                                alert("剪貼簿是空的");
+                            }
+                        } catch (e) {
+                            throw e; // Trigger outer catch
+                        }
+                    }
+                } catch (err) {
+                    console.warn("Smart paste blocked:", err);
+                    setInputMode('paste'); // Switch mode so user can see textarea
+                    setTimeout(() => {
+                        // Friendly user guide instead of error
+                        alert("⚠️ 瀏覽器安全限制：\n\n請直接點擊下方的「輸入框」，然後使用「貼上」(Ctrl+V 或長按貼上)。\n\n系統會自動辨識剪貼簿中的文字與圖片！");
+                        document.querySelector('textarea')?.focus();
+                    }, 100);
+                }
             };
 
             const handlePaste = async (e) => {
@@ -697,7 +780,7 @@
                                 <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
                                 <div className="flex justify-between mb-3 items-center pl-2"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Plus size={10}/> 新增到: {currentTagFilter === 'all' || currentTagFilter === 'uncategorized' ? '未分類' : currentTagFilter}</span><div className="flex bg-slate-100 p-0.5 rounded-lg"><button onClick={() => setInputMode('paste')} className={`px-2 py-1 rounded-md text-[10px] flex items-center gap-1 transition-all ${inputMode === 'paste' ? 'bg-white shadow text-blue-600 font-bold' : 'text-slate-500'}`}><ClipboardPaste size={10}/> 貼上</button><button onClick={() => setInputMode('manual')} className={`px-2 py-1 rounded-md text-[10px] flex items-center gap-1 transition-all ${inputMode === 'manual' ? 'bg-white shadow text-blue-600 font-bold' : 'text-slate-500'}`}><Pencil size={10}/> 手動</button></div></div>
                                 {inputMode === 'paste' ? (<div onPaste={handlePaste} className="relative"><textarea value={pasteVal} onChange={(e) => setPasteVal(e.target.value)} placeholder="直接貼上簡訊、票券文字或「Ctrl+V 貼上圖片」..." className="w-full text-base resize-none outline-none text-slate-700 placeholder:text-slate-300 min-h-[80px] pl-2" /></div>) : (<div className="space-y-3 pl-2" onPaste={handlePaste}><div><input type="text" value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="內容/品名 (必填)" className="w-full border-b border-slate-200 pb-2 outline-none font-medium focus:border-blue-500 transition-colors" /></div><div className="flex gap-2"><input type="text" value={manualSerial} onChange={(e) => setManualSerial(e.target.value)} placeholder="序號 (選填)" className="flex-1 bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" /><input type="text" value={manualExpiry} onChange={(e) => setManualExpiry(e.target.value)} placeholder="YYYY/MM/DD" className="w-1/3 bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" /></div><div><input type="url" value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} placeholder="相關連結 (URL)" className="w-full bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" /></div><div><textarea value={manualNote} onChange={(e) => setManualNote(e.target.value)} placeholder="備註..." className="w-full bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all resize-none min-h-[60px]" /></div></div>)}
-                                <div className="pl-2 mt-2">{pendingImage ? (<div className="relative inline-block group"><img src={pendingImage} alt="Pending" className="h-16 w-auto rounded-lg border border-slate-200" /><button onClick={() => setPendingImage('')} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 transition-colors"><X size={12}/></button></div>) : (<div className="flex flex-wrap items-center gap-2"><button onClick={handlePasteFromClipboard} className="text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-100 flex items-center gap-1 text-xs rounded-lg px-3 py-2 hover:bg-blue-100 transition-all font-medium"><Clipboard size={14}/> 從剪貼簿貼上圖片</button><button onClick={() => fileInputRef.current.click()} className="text-slate-500 hover:text-slate-700 bg-slate-50 border border-slate-200 flex items-center gap-1 text-xs rounded-lg px-3 py-2 hover:bg-slate-100 transition-all"><Upload size={14}/> 上傳圖片</button><input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" className="hidden" /></div>)}</div>
+                                <div className="pl-2 mt-2">{pendingImage ? (<div className="relative inline-block group"><img src={pendingImage} alt="Pending" className="h-16 w-auto rounded-lg border border-slate-200" /><button onClick={() => setPendingImage('')} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 transition-colors"><X size={12}/></button></div>) : (<div className="flex flex-wrap items-center gap-2"><button onClick={handleSmartPaste} className="text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-100 flex items-center gap-1 text-xs rounded-lg px-3 py-2 hover:bg-blue-100 transition-all font-medium"><ClipboardList size={14}/> 貼上全部 (文字+圖片)</button><button onClick={handlePasteFromClipboard} className="text-slate-600 hover:text-slate-800 bg-slate-50 border border-slate-200 flex items-center gap-1 text-xs rounded-lg px-3 py-2 hover:bg-slate-100 transition-all"><Clipboard size={14}/> 僅貼上圖片</button><button onClick={() => fileInputRef.current.click()} className="text-slate-500 hover:text-slate-700 bg-slate-50 border border-slate-200 flex items-center gap-1 text-xs rounded-lg px-3 py-2 hover:bg-slate-100 transition-all"><Upload size={14}/> 上傳圖片</button><input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" className="hidden" /></div>)}</div>
                                 <div className="flex justify-end mt-3 border-t border-slate-50 pt-3"><button onClick={handleAddTask} disabled={(inputMode === 'paste' ? !pasteVal.trim() : !manualName.trim()) && !pendingImage} className="bg-blue-600 hover:bg-blue-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white px-5 py-2 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-blue-200 transition-all"><Plus size={16}/> 新增項目</button></div>
                             </div>
                         )}
