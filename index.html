@@ -271,6 +271,7 @@
             const [justCopied, setJustCopied] = useState(false);
             const isCompleted = task.completed;
             const isDeleted = task.isDeleted;
+            // Format timestamps for display
             const completedDate = task.completedAt ? formatTimestamp(task.completedAt, true) : ''; // Include time
             const createdDate = task.createdAt ? formatTimestamp(task.createdAt, true) : ''; // Include time
             const [isEditingContent, setIsEditingContent] = useState(false);
@@ -661,9 +662,6 @@
                              const doc = parser.parseFromString(html, 'text/html');
                              const img = doc.querySelector('img');
                              if (img && img.src) {
-                                 // Simple logic to prefer pendingImage if found.
-                                 // Note: Handling external CORS images client-side is tricky, but data-uris work fine.
-                                 // We set it as pending. If it fails to load later, user can replace.
                                  setPendingImage(img.src);
                                  foundAny = true;
                              }
@@ -681,7 +679,6 @@
                     }
 
                     if (!foundAny) {
-                        // Fallback to text only
                         try {
                             const text = await navigator.clipboard.readText();
                             if (text) {
@@ -708,21 +705,28 @@
             const handlePaste = async (e) => {
                 const items = e.clipboardData.items;
                 let hasFile = false;
+                
+                // 1. Try to find a file (screenshot/image copy)
                 for (let i = 0; i < items.length; i++) {
                     if (items[i].type.indexOf('image') !== -1) {
-                        e.preventDefault(); 
-                        hasFile = true;
+                        // Don't preventDefault yet, in case it's mixed content we want to let text paste too?
+                        // Actually for pure image paste, we usually want to stop text paste if it's just the file name.
+                        // But for "Smart Paste", users might want both.
+                        // Let's grab the image.
                         const blob = items[i].getAsFile();
                         try {
                             const compressed = await compressImage(blob);
                             setPendingImage(compressed);
+                            hasFile = true;
                         } catch (err) {
                             console.error("Paste image error:", err);
                         }
-                        return; 
+                        // We found an image file. If we preventDefault, text won't paste.
+                        // If we don't, text pastes. Let's allow text to paste too if present.
                     }
                 }
 
+                // 2. If no file found, check HTML for images (web copy)
                 if (!hasFile) {
                     const html = e.clipboardData.getData('text/html');
                     if (html) {
@@ -736,6 +740,9 @@
                         }
                     }
                 }
+                
+                // We do NOT call e.preventDefault() here anymore, 
+                // so that the text content (if any) is correctly inserted into the textarea by the browser.
             };
 
             const handleAddTask = async () => {
