@@ -66,7 +66,7 @@
             CheckCircle2, ListTodo, Clock, StickyNote, Save, X, ScanBarcode, 
             Pencil, ClipboardPaste, ArrowRightLeft, Copy, CheckSquare, Trash, 
             RefreshCcw, Search, FolderPlus, AlertCircle, MoreVertical, Copy as CopyIcon, Link as LinkIcon,
-            Image as ImageIcon, Upload, Clipboard, ClipboardList, AlertTriangle
+            Image as ImageIcon, Upload, Clipboard, ClipboardList, AlertTriangle, Download, FileJson, Database, FolderInput
         } from 'lucide-react';
 
         // --- Firebase Configuration ---
@@ -266,14 +266,13 @@
             );
         };
 
-        const TaskItem = ({ task, onToggle, onDelete, onRestore, onPermanentDelete, onUpdateNote, onUpdateText, onUpdateTicket, isSelectionMode, isSelected, onSelect, expiryThreshold, isDuplicate }) => {
+        const TaskItem = ({ task, tags, onToggle, onDelete, onRestore, onPermanentDelete, onUpdateNote, onUpdateText, onUpdateTicket, isSelectionMode, isSelected, onSelect, expiryThreshold, isDuplicate }) => {
             const [showCodes, setShowCodes] = useState(false);
             const [justCopied, setJustCopied] = useState(false);
             const isCompleted = task.completed;
             const isDeleted = task.isDeleted;
-            // Format timestamps for display
-            const completedDate = task.completedAt ? formatTimestamp(task.completedAt, true) : ''; // Include time
-            const createdDate = task.createdAt ? formatTimestamp(task.createdAt, true) : ''; // Include time
+            const completedDate = task.completedAt ? formatTimestamp(task.completedAt, true) : ''; 
+            const createdDate = task.createdAt ? formatTimestamp(task.createdAt, true) : ''; 
             const [isEditingContent, setIsEditingContent] = useState(false);
             
             // Edit states
@@ -283,6 +282,7 @@
             const [editImage, setEditImage] = useState(task.image || '');
             const [editUrl, setEditUrl] = useState(task.url || '');
             const [editNote, setEditNote] = useState(task.note || '');
+            const [editTag, setEditTag] = useState(task.tag || 'default');
 
             useEffect(() => { 
                 setEditName(task.productName || task.text || ''); 
@@ -291,10 +291,11 @@
                 setEditImage(task.image || '');
                 setEditUrl(task.url || '');
                 setEditNote(task.note || '');
+                setEditTag(task.tag || 'default');
             }, [task]);
 
             const handleSaveContent = () => {
-                onUpdateTicket(task.id, editName, editSerial, editExpiry, editImage, editUrl, editNote);
+                onUpdateTicket(task.id, editName, editSerial, editExpiry, editImage, editUrl, editNote, editTag);
                 setIsEditingContent(false);
             };
 
@@ -327,7 +328,7 @@
             if (isDeleted) {
                 containerStyle += 'bg-red-50/40 border-red-100';
             } else if (isDuplicate) {
-                containerStyle += 'bg-red-100 border-red-300 ring-1 ring-red-300 shadow-md'; // Warning for duplicates
+                containerStyle += 'bg-red-100 border-red-300 ring-1 ring-red-300 shadow-md'; 
             } else if (isCompleted) {
                 containerStyle += 'bg-slate-50 border-slate-200';
             } else if (isExpiring) {
@@ -352,8 +353,20 @@
             if (isEditingContent) {
                 return (
                     <div className="bg-white rounded-2xl shadow-lg border border-blue-500 p-4 mb-3 space-y-3 ring-4 ring-blue-500/10 z-10 relative animate-in" onClick={(e) => e.stopPropagation()}>
-                        <label className="block text-xs font-bold text-gray-400">品名 / 內容</label>
-                        <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full border-b border-gray-200 focus:border-blue-500 pb-1 font-bold text-lg outline-none" placeholder="品名"/>
+                        <div className="flex justify-between items-start">
+                            <div className="flex-1 mr-2">
+                                <label className="block text-xs font-bold text-gray-400">品名 / 內容</label>
+                                <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full border-b border-gray-200 focus:border-blue-500 pb-1 font-bold text-lg outline-none" placeholder="品名"/>
+                            </div>
+                            <div className="w-1/3">
+                                <label className="block text-xs font-bold text-gray-400">分類</label>
+                                <select value={editTag} onChange={(e) => setEditTag(e.target.value)} className="w-full bg-slate-50 border-b border-gray-200 text-sm py-1 outline-none focus:border-blue-500">
+                                    <option value="default">未分類</option>
+                                    {tags.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                            </div>
+                        </div>
+
                         <div className="flex items-start gap-3 p-2 bg-slate-50 rounded-lg border border-slate-100">
                             {editImage ? (
                                 <div className="relative w-16 h-16 flex-shrink-0">
@@ -396,7 +409,6 @@
 
             return (
                 <div className={containerStyle}>
-                    {/* Visual Badges */}
                     <div className="absolute top-0 right-0 flex flex-col items-end">
                         {isDuplicate && !isDeleted && (
                             <div className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-bl-lg font-bold flex items-center gap-1 shadow-sm mb-[1px]">
@@ -440,7 +452,6 @@
                             {task.isTicket && !isDeleted && <div className="mt-3 flex gap-2"><button onClick={(e) => { e.stopPropagation(); setShowCodes(!showCodes); }} className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${showCodes ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><ScanBarcode size={14} /> {showCodes ? '收起詳情' : '顯示詳情'}</button></div>}
                             {isDeleted && <div className="mt-2 text-xs text-red-400 flex items-center gap-1"><Trash2 size={12}/> 已在垃圾桶 - 點擊卡片可展開查看</div>}
                         </div>
-                        {/* Quick Actions (Right Side) */}
                         <div className="flex flex-col gap-1">
                              {isDeleted ? (
                                 <>
@@ -462,14 +473,11 @@
                             )}
                         </div>
                     </div>
-                    {/* Time display: Completed time for completed items, Created time for active/others */}
                     {isCompleted && completedDate ? (
                         <div className="ml-10 mt-2 text-[10px] text-slate-400 flex items-center gap-1"><Clock size={10} /> 完成於 {completedDate}</div>
                     ) : (
-                        /* 修改處：將 text-slate-300 改為 text-red-400 以顯示紅色日期 */
                         createdDate && <div className="ml-10 mt-2 text-[10px] text-red-400 flex items-center gap-1">新增於 {createdDate}</div>
                     )}
-                    
                     {showCodes && (
                         <div className="mt-4 pt-6 border-t border-dashed border-slate-200 animate-in cursor-default" onClick={(e) => e.stopPropagation()}>
                             <div className="bg-white p-6 rounded-2xl flex flex-col items-center gap-5 text-center shadow-sm border border-slate-100 relative">
@@ -536,6 +544,112 @@
             );
         };
 
+        // NEW: Backup and Restore Modal
+        const DataToolsModal = ({ isOpen, onClose, tasks, onRestore }) => {
+            const [activeTab, setActiveTab] = useState('backup');
+            const [restoreInput, setRestoreInput] = useState('');
+            const [restoreStatus, setRestoreStatus] = useState('');
+
+            if (!isOpen) return null;
+
+            const handleBackupCopy = async () => {
+                const dataStr = JSON.stringify(tasks);
+                // Use the robust copyToClipboard utility instead of direct navigator call
+                const success = await copyToClipboard(dataStr);
+                if (success) {
+                    alert(`✅ 已複製 ${tasks.length} 筆資料 (含圖片) 到剪貼簿！`);
+                } else {
+                    alert("❌ 複製失敗。請嘗試手動選取文字或改用「下載檔案」功能。");
+                }
+            };
+
+            const handleDownload = () => {
+                const dataStr = JSON.stringify(tasks, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ticket_backup_${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            const handleRestoreParse = async () => {
+                try {
+                    setRestoreStatus('解析中...');
+                    const data = JSON.parse(restoreInput);
+                    if (!Array.isArray(data)) throw new Error("格式錯誤：必須是陣列");
+                    
+                    if(confirm(`⚠️ 確定要匯入 ${data.length} 筆資料嗎？\n現有的資料不會被刪除，將會新增這些備份資料。`)) {
+                        setRestoreStatus('匯入中...請稍候');
+                        await onRestore(data);
+                        setRestoreStatus('✅ 匯入完成！');
+                        setRestoreInput('');
+                        setTimeout(onClose, 1500);
+                    } else {
+                        setRestoreStatus('');
+                    }
+                } catch (e) {
+                    setRestoreStatus('❌ 格式錯誤，請確認貼上的是正確的 JSON 備份文字');
+                    console.error(e);
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in">
+                    <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-0 overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+                            <h2 className="font-bold text-lg flex items-center gap-2 text-slate-700"><Database size={20}/> 資料備份與還原</h2>
+                            <button onClick={onClose}><X size={20} className="text-slate-400 hover:text-slate-600"/></button>
+                        </div>
+                        
+                        <div className="flex border-b">
+                            <button onClick={() => setActiveTab('backup')} className={`flex-1 py-3 text-sm font-bold text-center ${activeTab === 'backup' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-500 hover:bg-slate-50'}`}>匯出 (備份)</button>
+                            <button onClick={() => setActiveTab('restore')} className={`flex-1 py-3 text-sm font-bold text-center ${activeTab === 'restore' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-500 hover:bg-slate-50'}`}>匯入 (還原)</button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto">
+                            {activeTab === 'backup' ? (
+                                <div className="space-y-4">
+                                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-center">
+                                        <div className="text-3xl font-black text-blue-600 mb-1">{tasks.length}</div>
+                                        <div className="text-xs text-blue-400 font-bold uppercase tracking-wider">目前總項目數</div>
+                                    </div>
+                                    <p className="text-sm text-slate-500 leading-relaxed">
+                                        備份包含所有的票券資訊、備註、圖片與標籤。
+                                        <br/>建議定期備份，或在切換裝置前進行備份。
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-3 mt-4">
+                                        <button onClick={handleBackupCopy} className="flex flex-col items-center justify-center gap-2 p-4 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-blue-300 transition-all group">
+                                            <div className="bg-slate-100 p-3 rounded-full group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors"><Copy size={24}/></div>
+                                            <span className="text-sm font-bold text-slate-600">複製到剪貼簿</span>
+                                        </button>
+                                        <button onClick={handleDownload} className="flex flex-col items-center justify-center gap-2 p-4 border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-blue-300 transition-all group">
+                                            <div className="bg-slate-100 p-3 rounded-full group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors"><Download size={24}/></div>
+                                            <span className="text-sm font-bold text-slate-600">下載成檔案</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <textarea 
+                                        value={restoreInput} 
+                                        onChange={(e) => setRestoreInput(e.target.value)} 
+                                        placeholder="請在此貼上備份的文字內容 (JSON)..." 
+                                        className="w-full h-40 p-3 border rounded-xl text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none bg-slate-50"
+                                    ></textarea>
+                                    {restoreStatus && <div className={`text-sm font-bold text-center ${restoreStatus.includes('❌') ? 'text-red-500' : 'text-blue-600'}`}>{restoreStatus}</div>}
+                                    <button onClick={handleRestoreParse} disabled={!restoreInput.trim()} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
+                                        <FileJson size={18}/> 開始還原
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const App = () => {
             const [user, setUser] = useState(null);
             const [workspaceId, setWorkspaceId] = useState(() => localStorage.getItem('ticket_workspace_id') || '');
@@ -547,6 +661,7 @@
             const [manualExpiry, setManualExpiry] = useState('');
             const [manualNote, setManualNote] = useState('');
             const [manualUrl, setManualUrl] = useState('');
+            const [manualTag, setManualTag] = useState('default'); // New state for manual tag
             const [pendingImage, setPendingImage] = useState(''); 
             const [isJoined, setIsJoined] = useState(false);
             const [loading, setLoading] = useState(true);
@@ -566,6 +681,7 @@
             const [showTagManager, setShowTagManager] = useState(false);
             const [showMigration, setShowMigration] = useState(false);
             const [isMigrating, setIsMigrating] = useState(false);
+            const [showDataTools, setShowDataTools] = useState(false); // New state for Data Tools
 
             useEffect(() => { localStorage.setItem('pref_filterType', filterType); }, [filterType]);
             useEffect(() => { localStorage.setItem('pref_sortType', sortType); }, [sortType]);
@@ -632,7 +748,11 @@
                 if (searchQuery.trim()) {
                     const q = searchQuery.toLowerCase();
                     result = result.filter(t => {
-                        const commonMatch = (t.productName || '').toLowerCase().includes(q) || (t.serial || '').toLowerCase().includes(q) || (t.note || '').toLowerCase().includes(q);
+                        const commonMatch = (t.productName || '').toLowerCase().includes(q) || 
+                                            (t.serial || '').toLowerCase().includes(q) || 
+                                            (t.note || '').toLowerCase().includes(q) ||
+                                            (t.tag || '').toLowerCase().includes(q); // 新增：搜尋標籤名稱
+                        
                         if (t.isTicket) return commonMatch;
                         return commonMatch || (t.text || '').toLowerCase().includes(q);
                     });
@@ -669,9 +789,8 @@
                     }
                     if (!foundImage) alert("剪貼簿中沒有發現圖片");
                 } catch (err) { 
-                    // Improved error handling
                     console.error("Native paste failed:", err); 
-                    setInputMode('paste'); // Force switch to paste mode
+                    setInputMode('paste'); 
                     setTimeout(() => {
                         alert("⚠️ 瀏覽器安全限制：\n無法透過按鈕直接讀取。\n\n請直接點擊「輸入框」，並使用「貼上」功能 (Ctrl+V 或長按貼上)。\n系統會自動抓取剪貼簿中的文字與圖片。");
                         document.querySelector('textarea')?.focus();
@@ -692,8 +811,6 @@
                             setPendingImage(compressed);
                             foundAny = true;
                         }
-                        
-                        // New: Check for HTML type which might contain images (web copy)
                         else if (item.types.includes('text/html')) {
                              const blob = await item.getType('text/html');
                              const html = await blob.text();
@@ -718,7 +835,6 @@
                     }
 
                     if (!foundAny) {
-                        // Fallback to text only
                         try {
                             const text = await navigator.clipboard.readText();
                             if (text) {
@@ -728,14 +844,13 @@
                                 alert("剪貼簿是空的");
                             }
                         } catch (e) {
-                            throw e; // Trigger outer catch
+                            throw e; 
                         }
                     }
                 } catch (err) {
                     console.warn("Smart paste blocked:", err);
-                    setInputMode('paste'); // Switch mode so user can see textarea
+                    setInputMode('paste'); 
                     setTimeout(() => {
-                        // Friendly user guide instead of error
                         alert("⚠️ 瀏覽器安全限制：\n\n請直接點擊下方的「輸入框」，然後使用「貼上」(Ctrl+V 或長按貼上)。\n\n系統會自動辨識剪貼簿中的文字與圖片！");
                         document.querySelector('textarea')?.focus();
                     }, 100);
@@ -745,28 +860,21 @@
             const handlePaste = async (e) => {
                 const items = e.clipboardData.items;
                 let hasFile = false;
-                
-                // 1. Try to find a file (screenshot/image copy)
                 for (let i = 0; i < items.length; i++) {
                     if (items[i].type.indexOf('image') !== -1) {
-                        // Don't preventDefault yet, in case it's mixed content we want to let text paste too?
-                        // Actually for pure image paste, we usually want to stop text paste if it's just the file name.
-                        // But for "Smart Paste", users might want both.
-                        // Let's grab the image.
+                        e.preventDefault(); 
+                        hasFile = true;
                         const blob = items[i].getAsFile();
                         try {
                             const compressed = await compressImage(blob);
                             setPendingImage(compressed);
-                            hasFile = true;
                         } catch (err) {
                             console.error("Paste image error:", err);
                         }
-                        // We found an image file. If we preventDefault, text won't paste.
-                        // If we don't, text pastes. Let's allow text to paste too if present.
+                        return; 
                     }
                 }
 
-                // 2. If no file found, check HTML for images (web copy)
                 if (!hasFile) {
                     const html = e.clipboardData.getData('text/html');
                     if (html) {
@@ -780,28 +888,30 @@
                         }
                     }
                 }
-                
-                // We do NOT call e.preventDefault() here anymore, 
-                // so that the text content (if any) is correctly inserted into the textarea by the browser.
             };
 
             const handleAddTask = async () => {
                 if (!user) return;
                 let newTask = {};
                 const currentTagToSave = (currentTagFilter !== 'all' && currentTagFilter !== 'uncategorized') ? currentTagFilter : 'default';
+                
+                // Use manualTag if in manual mode, otherwise stick to the current filter logic
+                const tagToUse = inputMode === 'manual' ? manualTag : currentTagToSave;
+
                 if (inputMode === 'paste') {
                     if (!pasteVal.trim() && !pendingImage) return;
                     const parsed = parseTicketInfo(pasteVal);
                     const name = parsed.productName || (pendingImage ? "圖片項目" : "未命名");
-                    newTask = { text: pasteVal, isTicket: parsed.isTicket || !!pendingImage, serial: parsed.serial, productName: name, expiry: parsed.expiry, completed: false, isDeleted: false, createdAt: serverTimestamp(), note: '', url: '', tag: currentTagToSave, image: pendingImage };
+                    newTask = { text: pasteVal, isTicket: parsed.isTicket || !!pendingImage, serial: parsed.serial, productName: name, expiry: parsed.expiry, completed: false, isDeleted: false, createdAt: serverTimestamp(), note: '', url: '', tag: tagToUse, image: pendingImage };
                 } else {
                     if (!manualName.trim() && !pendingImage) return;
                     const fmtExpiry = manualExpiry ? manualExpiry.replace(/-/g, '/') : '';
-                    newTask = { text: manualName, isTicket: (!!manualSerial.trim() || !!pendingImage), serial: manualSerial.trim(), productName: manualName || "圖片項目", expiry: fmtExpiry, completed: false, isDeleted: false, createdAt: serverTimestamp(), note: manualNote, url: manualUrl, tag: currentTagToSave, image: pendingImage };
+                    newTask = { text: manualName, isTicket: (!!manualSerial.trim() || !!pendingImage), serial: manualSerial.trim(), productName: manualName || "圖片項目", expiry: fmtExpiry, completed: false, isDeleted: false, createdAt: serverTimestamp(), note: manualNote, url: manualUrl, tag: tagToUse, image: pendingImage };
                 }
                 try {
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', workspaceId), newTask);
                     setPasteVal(''); setManualName(''); setManualSerial(''); setManualExpiry(''); setManualNote(''); setManualUrl(''); setPendingImage('');
+                    setManualTag('default'); // Reset manual tag
                     if (viewStatus !== 'active') setViewStatus('active');
                 } catch (e) { alert(`新增失敗：${e.message}`); }
             };
@@ -809,7 +919,7 @@
             const handleToggleComplete = async (task) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { completed: !task.completed, completedAt: !task.completed ? serverTimestamp() : null }); };
             const handleUpdateNote = async (id, newNote) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { note: newNote }); };
             const handleUpdateText = async (id, newText) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { text: newText, productName: newText }); };
-            const handleUpdateTicket = async (id, name, serial, expiry, image, url, note) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { productName: name, serial: serial, expiry: expiry, image: image, url: url, note: note }); };
+            const handleUpdateTicket = async (id, name, serial, expiry, image, url, note, tag) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { productName: name, serial: serial, expiry: expiry, image: image, url: url, note: note, tag: tag }); };
             const handleDelete = async (id) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { isDeleted: true, deletedAt: serverTimestamp() }); };
             const handleRestore = async (task) => { if (!user) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, task.id), { isDeleted: false, completed: false }); };
             const handlePermanentDelete = async (id) => { if (!user) return; if(confirm("確定永久刪除？此動作無法復原。")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id)); };
@@ -824,7 +934,44 @@
             const handleBatchMoveTag = async (targetTag) => { if (!user || selectedTasks.size === 0) return; const batch = writeBatch(db); selectedTasks.forEach(id => batch.update(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { tag: targetTag })); await batch.commit(); setIsSelectionMode(false); setSelectedTasks(new Set()); };
             const handleBatchDelete = async () => { if (!user || selectedTasks.size === 0) return; if (!confirm(`確定將 ${selectedTasks.size} 個項目移至垃圾桶？`)) return; const batch = writeBatch(db); selectedTasks.forEach(id => batch.update(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, id), { isDeleted: true })); await batch.commit(); setIsSelectionMode(false); setSelectedTasks(new Set()); };
             const handleEmptyTrash = async () => { if (!user) return; const trashItems = tasks.filter(t => t.isDeleted); if (trashItems.length === 0) return; if (!confirm(`⚠️ 警告：確定清空垃圾桶中的 ${trashItems.length} 個項目嗎？此動作無法復原！`)) return; const batch = writeBatch(db); trashItems.forEach(t => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', workspaceId, t.id))); await batch.commit(); };
+            
             const handleMigrate = async (targetId) => { if (!targetId || targetId === workspaceId) return; setIsMigrating(true); try { const sourceRef = collection(db, 'artifacts', appId, 'public', 'data', workspaceId); const snapshot = await getDocs(sourceRef); if (snapshot.empty) { alert("目前空間沒有資料"); setIsMigrating(false); return; } const chunks = []; let batch = writeBatch(db); let count = 0; snapshot.docs.forEach((docSnap) => { const data = docSnap.data(); const newRef = doc(collection(db, 'artifacts', appId, 'public', 'data', targetId)); batch.set(newRef, data); count++; if (count >= 400) { chunks.push(batch); batch = writeBatch(db); count = 0; } }); if (count > 0) chunks.push(batch); await Promise.all(chunks.map(b => b.commit())); if (confirm(`成功搬移到「${targetId}」！是否切換？`)) { handleJoin(targetId); } setShowMigration(false); } catch (e) { alert("搬移失敗：" + e.message); } finally { setIsMigrating(false); } };
+
+            // New: Bulk Restore Logic
+            const handleBulkRestore = async (dataArray) => {
+                if (!user || !Array.isArray(dataArray) || dataArray.length === 0) return;
+                
+                // Chunking for batch writes (limit 500)
+                const chunks = [];
+                let batch = writeBatch(db);
+                let count = 0;
+                
+                // Process each item
+                dataArray.forEach(item => {
+                    const newDocRef = doc(collection(db, 'artifacts', appId, 'public', 'data', workspaceId));
+                    const { id, ...rest } = item; 
+                    
+                    const newItem = {
+                        ...rest,
+                        createdAt: serverTimestamp(), // Refresh timestamp to avoid issues
+                        restoredAt: serverTimestamp()
+                    };
+
+                    batch.set(newDocRef, newItem);
+                    count++;
+                    
+                    if (count >= 400) {
+                        chunks.push(batch);
+                        batch = writeBatch(db);
+                        count = 0;
+                    }
+                });
+                
+                if (count > 0) chunks.push(batch);
+                
+                // Commit all batches
+                await Promise.all(chunks.map(b => b.commit()));
+            };
 
             if (!auth && !firebaseConfig.apiKey) return <div className="min-h-screen flex items-center justify-center text-slate-500">尚未設定 Config</div>;
             if (!isJoined) return <LoginScreen onJoin={handleJoin} authError={authError} />;
@@ -835,7 +982,16 @@
                         <div className="max-w-3xl mx-auto px-4 py-3">
                             <div className="flex items-center justify-between mb-3">
                                 <div className="flex items-center gap-3"><div className="bg-blue-600 text-white p-2 rounded-xl shadow-blue-200 shadow-md"><Calendar size={20} /></div><div><h1 className="font-extrabold text-lg leading-none tracking-tight text-slate-800">票券小幫手 <span className="text-blue-600">Pro+</span></h1><p className="text-[10px] text-slate-400 mt-1 font-mono tracking-wide bg-slate-100 px-1.5 py-0.5 rounded inline-block">ID: {workspaceId}</p></div></div>
-                                <div className="flex items-center gap-2"><div className="relative group"><button className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><MoreVertical size={20}/></button><div className="absolute right-0 top-full mt-1 bg-white border border-slate-100 rounded-xl shadow-xl p-1 min-w-[140px] hidden group-hover:block hover:block z-30"><button onClick={() => setShowMigration(true)} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg flex items-center gap-2"><ArrowRightLeft size={16} /> 資料搬家</button><button onClick={handleLogout} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg flex items-center gap-2"><LogIn size={16} className="rotate-180"/> 登出/切換</button></div></div></div>
+                                <div className="flex items-center gap-2">
+                                    <div className="relative group">
+                                        <button className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><MoreVertical size={20}/></button>
+                                        <div className="absolute right-0 top-full mt-1 bg-white border border-slate-100 rounded-xl shadow-xl p-1 min-w-[140px] hidden group-hover:block hover:block z-30">
+                                            <button onClick={() => setShowDataTools(true)} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg flex items-center gap-2"><Database size={16} /> 資料備份 / 還原</button>
+                                            <button onClick={() => setShowMigration(true)} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg flex items-center gap-2"><ArrowRightLeft size={16} /> 資料搬家</button>
+                                            <button onClick={handleLogout} className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg flex items-center gap-2"><LogIn size={16} className="rotate-180"/> 登出/切換</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 items-center">
                                 <div className="relative flex-1 min-w-[140px] max-w-[200px]"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜尋..." className="w-full pl-9 pr-2 py-1.5 text-sm bg-slate-100 border-transparent focus:bg-white focus:border-blue-300 focus:ring-2 focus:ring-blue-100 rounded-lg outline-none transition-all" />{searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={12}/></button>}</div>
@@ -851,7 +1007,26 @@
                             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-6 transition-all focus-within:ring-4 focus-within:ring-blue-50 focus-within:border-blue-300 relative overflow-hidden">
                                 <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
                                 <div className="flex justify-between mb-3 items-center pl-2"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1"><Plus size={10}/> 新增到: {currentTagFilter === 'all' || currentTagFilter === 'uncategorized' ? '未分類' : currentTagFilter}</span><div className="flex bg-slate-100 p-0.5 rounded-lg"><button onClick={() => setInputMode('paste')} className={`px-2 py-1 rounded-md text-[10px] flex items-center gap-1 transition-all ${inputMode === 'paste' ? 'bg-white shadow text-blue-600 font-bold' : 'text-slate-500'}`}><ClipboardPaste size={10}/> 貼上</button><button onClick={() => setInputMode('manual')} className={`px-2 py-1 rounded-md text-[10px] flex items-center gap-1 transition-all ${inputMode === 'manual' ? 'bg-white shadow text-blue-600 font-bold' : 'text-slate-500'}`}><Pencil size={10}/> 手動</button></div></div>
-                                {inputMode === 'paste' ? (<div onPaste={handlePaste} className="relative"><textarea value={pasteVal} onChange={(e) => setPasteVal(e.target.value)} placeholder="直接貼上簡訊、票券文字或「Ctrl+V 貼上圖片」..." className="w-full text-base resize-none outline-none text-slate-700 placeholder:text-slate-300 min-h-[80px] pl-2" /></div>) : (<div className="space-y-3 pl-2" onPaste={handlePaste}><div><input type="text" value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="內容/品名 (必填)" className="w-full border-b border-slate-200 pb-2 outline-none font-medium focus:border-blue-500 transition-colors" /></div><div className="flex gap-2"><input type="text" value={manualSerial} onChange={(e) => setManualSerial(e.target.value)} placeholder="序號 (選填)" className="flex-1 bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" /><input type="text" value={manualExpiry} onChange={(e) => setManualExpiry(e.target.value)} placeholder="YYYY/MM/DD" className="w-1/3 bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" /></div><div><input type="url" value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} placeholder="相關連結 (URL)" className="w-full bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" /></div><div><textarea value={manualNote} onChange={(e) => setManualNote(e.target.value)} placeholder="備註..." className="w-full bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all resize-none min-h-[60px]" /></div></div>)}
+                                {inputMode === 'paste' ? (<div onPaste={handlePaste} className="relative"><textarea value={pasteVal} onChange={(e) => setPasteVal(e.target.value)} placeholder="直接貼上簡訊、票券文字或「Ctrl+V 貼上圖片」..." className="w-full text-base resize-none outline-none text-slate-700 placeholder:text-slate-300 min-h-[80px] pl-2" /></div>) : (
+                                    <div className="space-y-3 pl-2" onPaste={handlePaste}>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex-1">
+                                                <input type="text" value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="內容/品名 (必填)" className="w-full border-b border-slate-200 pb-2 outline-none font-medium focus:border-blue-500 transition-colors" />
+                                            </div>
+                                            {/* New Category Dropdown for Manual Input */}
+                                            <div className="w-1/3 relative">
+                                                 <select value={manualTag} onChange={(e) => setManualTag(e.target.value)} className="w-full bg-slate-50 border-b border-slate-200 text-xs py-2 px-1 outline-none focus:border-blue-500 appearance-none">
+                                                    <option value="default">未分類 (預設)</option>
+                                                    {tags.map(t => <option key={t} value={t}>{t}</option>)}
+                                                </select>
+                                                <button onClick={() => setShowTagManager(true)} className="absolute right-0 top-1/2 -translate-y-1/2 text-blue-500 p-1" title="管理分類"><FolderInput size={14}/></button>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2"><input type="text" value={manualSerial} onChange={(e) => setManualSerial(e.target.value)} placeholder="序號 (選填)" className="flex-1 bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" /><input type="text" value={manualExpiry} onChange={(e) => setManualExpiry(e.target.value)} placeholder="YYYY/MM/DD" className="w-1/3 bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" /></div>
+                                        <div><input type="url" value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} placeholder="相關連結 (URL)" className="w-full bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all" /></div>
+                                        <div><textarea value={manualNote} onChange={(e) => setManualNote(e.target.value)} placeholder="備註..." className="w-full bg-slate-50 p-2.5 rounded-lg text-sm border-transparent focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all resize-none min-h-[60px]" /></div>
+                                    </div>
+                                )}
                                 <div className="pl-2 mt-2">{pendingImage ? (<div className="relative inline-block group"><img src={pendingImage} alt="Pending" className="h-16 w-auto rounded-lg border border-slate-200" /><button onClick={() => setPendingImage('')} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 transition-colors"><X size={12}/></button></div>) : (<div className="flex flex-wrap items-center gap-2"><button onClick={handleSmartPaste} className="text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-100 flex items-center gap-1 text-xs rounded-lg px-3 py-2 hover:bg-blue-100 transition-all font-medium"><ClipboardList size={14}/> 貼上全部 (文字+圖片)</button><button onClick={handlePasteFromClipboard} className="text-slate-600 hover:text-slate-800 bg-slate-50 border border-slate-200 flex items-center gap-1 text-xs rounded-lg px-3 py-2 hover:bg-slate-100 transition-all"><Clipboard size={14}/> 僅貼上圖片</button><button onClick={() => fileInputRef.current.click()} className="text-slate-500 hover:text-slate-700 bg-slate-50 border border-slate-200 flex items-center gap-1 text-xs rounded-lg px-3 py-2 hover:bg-slate-100 transition-all"><Upload size={14}/> 上傳圖片</button><input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" className="hidden" /></div>)}</div>
                                 <div className="flex justify-end mt-3 border-t border-slate-50 pt-3"><button onClick={handleAddTask} disabled={(inputMode === 'paste' ? !pasteVal.trim() : !manualName.trim()) && !pendingImage} className="bg-blue-600 hover:bg-blue-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white px-5 py-2 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-blue-200 transition-all"><Plus size={16}/> 新增項目</button></div>
                             </div>
@@ -872,11 +1047,12 @@
                             {!isSelectionMode && (<div className="flex gap-2 ml-auto"><div className="flex gap-1 bg-white border border-slate-200 p-1 rounded-lg"><button onClick={() => setFilterType('all')} className={`px-2 py-1 rounded-md text-xs font-medium ${filterType === 'all' ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>全部</button><button onClick={() => setFilterType('ticket')} className={`px-2 py-1 rounded-md text-xs font-medium ${filterType === 'ticket' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>票券</button><button onClick={() => setFilterType('normal')} className={`px-2 py-1 rounded-md text-xs font-medium ${filterType === 'normal' ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>一般</button></div><select value={sortType} onChange={(e) => setSortType(e.target.value)} className="bg-white border border-slate-200 text-slate-600 text-xs rounded-lg p-1.5 outline-none focus:border-blue-300 font-medium"><option value="newest">最新</option><option value="expiring">快到期</option><option value="oldest">最早</option></select></div>)}
                         </div>
 
-                        {loading ? (<div className="flex flex-col items-center justify-center py-20 opacity-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div><span className="text-xs text-slate-400">同步資料中...</span></div>) : (<div className="space-y-1 pb-20"><div className="flex items-center justify-between px-1 mb-2"><h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">{processedTasks.length} 筆項目{isSelectionMode && <span className="text-blue-600 ml-2">(已選 {selectedTasks.size})</span>}</h2></div>{processedTasks.length === 0 ? (<div className="text-center py-16 bg-white rounded-3xl border border-dashed border-slate-200"><div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3"><ListTodo className="text-slate-300" size={32} /></div><p className="text-slate-400 font-medium">沒有符合的項目</p></div>) : (processedTasks.map(task => <TaskItem key={task.id} task={task} onToggle={handleToggleComplete} onDelete={handleDelete} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateText={handleUpdateText} onUpdateTicket={handleUpdateTicket} isSelectionMode={isSelectionMode} isSelected={selectedTasks.has(task.id)} onSelect={handleSelect} expiryThreshold={expiryThreshold} isDuplicate={duplicateSerials.has(task.serial)} />))}</div>)}
+                        {loading ? (<div className="flex flex-col items-center justify-center py-20 opacity-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div><span className="text-xs text-slate-400">同步資料中...</span></div>) : (<div className="space-y-1 pb-20"><div className="flex items-center justify-between px-1 mb-2"><h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">{processedTasks.length} 筆項目{isSelectionMode && <span className="text-blue-600 ml-2">(已選 {selectedTasks.size})</span>}</h2></div>{processedTasks.length === 0 ? (<div className="text-center py-16 bg-white rounded-3xl border border-dashed border-slate-200"><div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3"><ListTodo className="text-slate-300" size={32} /></div><p className="text-slate-400 font-medium">沒有符合的項目</p></div>) : (processedTasks.map(task => <TaskItem key={task.id} task={task} tags={tags} onToggle={handleToggleComplete} onDelete={handleDelete} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onUpdateNote={handleUpdateNote} onUpdateText={handleUpdateText} onUpdateTicket={handleUpdateTicket} isSelectionMode={isSelectionMode} isSelected={selectedTasks.has(task.id)} onSelect={handleSelect} expiryThreshold={expiryThreshold} isDuplicate={duplicateSerials.has(task.serial)} />))}</div>)}
                     </div>
                     
                     <TagManagerModal isOpen={showTagManager} onClose={() => setShowTagManager(false)} tags={tags} onAddTag={handleAddTag} onDeleteTag={handleDeleteTag} onRenameTag={handleRenameTag} />
                     {showMigration && <MigrationModal isOpen={showMigration} onClose={() => setShowMigration(false)} currentSpaceId={workspaceId} onMigrate={handleMigrate}/>}
+                    {showDataTools && <DataToolsModal isOpen={showDataTools} onClose={() => setShowDataTools(false)} tasks={tasks} onRestore={handleBulkRestore}/>}
                     {isMigrating && <div className="fixed inset-0 bg-white/80 z-[60] flex items-center justify-center backdrop-blur-sm"><div className="bg-white p-6 rounded-2xl shadow-xl border border-slate-100 flex flex-col items-center gap-4"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p className="font-bold text-slate-700">正在搬運資料...</p></div></div>}
                 </div>
             );
