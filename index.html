@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>雲端票券待辦清單 (Pro+ v2.4)</title>
+    <title>雲端票券待辦清單 (Pro+ v2.5)</title>
     
     <!-- 1. 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -433,20 +433,37 @@
                     <div className="ticket-divider"></div>
 
                     {/* Stub / Actions Area */}
-                    <div className="pb-3 px-3 flex justify-between items-center relative">
-                        {/* 加大的期限文字 */}
-                        <div className="flex items-center gap-2">
-                            {task.expiry ? (
-                                <span className={`text-sm font-bold flex items-center gap-1 px-2 py-1 rounded-md ${isCompleted || isDeleted ? 'text-slate-400 bg-slate-100 dark:bg-slate-800' : isExpiring ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 'text-green-700 bg-green-50 dark:bg-green-900/30'}`}>
-                                    <Calendar size={14}/> {task.expiry}
+                    <div className="pb-3 px-3 flex justify-between items-end relative">
+                        {/* 加大的期限文字與明確標示 */}
+                        <div className="flex items-center gap-4">
+                            {/* 有效期限 */}
+                            <div className="flex flex-col items-start">
+                                <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-0.5 ml-0.5">有效期限</span>
+                                {task.expiry ? (
+                                    <span className={`text-sm font-black flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${
+                                        isCompleted || isDeleted 
+                                            ? 'text-slate-400 bg-slate-100 border-slate-200 dark:bg-slate-800 dark:border-slate-700' 
+                                            : isExpiring 
+                                                ? 'text-red-600 bg-red-50 border-red-100 dark:bg-red-900/30 dark:border-red-800' 
+                                                : 'text-green-700 bg-green-50 border-green-100 dark:bg-green-900/30 dark:border-green-800'
+                                    }`}>
+                                        <Calendar size={14} strokeWidth={2.5}/> {task.expiry}
+                                    </span>
+                                ) : (
+                                    <span className="text-sm font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1 px-1"><Calendar size={14}/> 無期限</span>
+                                )}
+                            </div>
+
+                            {/* 新增日期 */}
+                            <div className="flex flex-col items-start">
+                                <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-0.5 ml-0.5">新增日期</span>
+                                <span className="text-xs font-medium text-slate-400 dark:text-slate-500 px-0.5">
+                                    {task.createdAt ? formatTimestamp(task.createdAt) : ''}
                                 </span>
-                            ) : (
-                                <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1"><Calendar size={12}/> 無期限</span>
-                            )}
-                            <span className="text-xs text-slate-300 dark:text-slate-600">{task.createdAt ? formatTimestamp(task.createdAt) : ''}</span>
+                            </div>
                         </div>
 
-                        <div className="flex gap-1" onClick={e=>e.stopPropagation()}>
+                        <div className="flex gap-1 mb-0.5" onClick={e=>e.stopPropagation()}>
                             {isDeleted ? (
                                 <>
                                     <button onClick={()=>onRestore(task)} className="p-2 rounded-full hover:bg-green-50 text-green-600"><RefreshCcw size={16}/></button>
